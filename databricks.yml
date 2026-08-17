@@ -17,6 +17,9 @@ resources:
       name: "bluebird-ops"
       description: "Bluebird ride-hailing operations"
       source_code_path: ./
+      git_repository:
+        provider: gitHub
+        url: https://github.com/danteliew6/bluebird-ridehailing-app
       user_api_scopes:
         - dashboards.genie
         - serving.serving-endpoints
