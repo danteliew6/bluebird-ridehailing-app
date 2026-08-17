@@ -1,0 +1,50 @@
+bundle:
+  name: bluebird-ops
+
+variables:
+  sql_warehouse_id:
+    description: SQL Warehouse ID
+  genie_space_id:
+    description: Default Genie Space ID
+  genie_space_name:
+    description: Genie Space display name
+  serving_endpoint_name:
+    description: Serving endpoint name
+
+resources:
+  apps:
+    app:
+      name: "bluebird-ops"
+      description: "Bluebird ride-hailing operations"
+      source_code_path: ./
+      user_api_scopes:
+        - dashboards.genie
+        - serving.serving-endpoints
+
+      # The resources which this app has access to.
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.sql_warehouse_id}
+            permission: CAN_USE
+        - name: genie-space
+          genie_space:
+            name: ${var.genie_space_name}
+            space_id: ${var.genie_space_id}
+            permission: CAN_RUN
+        - name: serving-endpoint
+          serving_endpoint:
+            name: ${var.serving_endpoint_name}
+            permission: CAN_QUERY
+
+targets:
+  default:
+    default: true
+    workspace:
+      host: https://fevm-dante-classic-stable.cloud.databricks.com
+
+    variables:
+      sql_warehouse_id: 114b2f7bfa1273b1
+      genie_space_id: 01f19a33de0a1111ab1e0302d7c0b8c7
+      genie_space_name: bluebird_data
+      serving_endpoint_name: bluebird-maintenance

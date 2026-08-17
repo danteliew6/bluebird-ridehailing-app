@@ -1,0 +1,42 @@
+@import "@databricks/appkit-ui/styles.css";
+
+/* ===== Bluebird whitelabel theme ===== */
+:root {
+  --radius: 0.625rem;
+  /* Bluebird blue as primary, gold accent */
+  --primary: oklch(0.45 0.15 258);
+  --primary-foreground: oklch(0.99 0 0);
+  --ring: oklch(0.55 0.13 250);
+  --accent: oklch(0.95 0.03 250);
+  --accent-foreground: oklch(0.30 0.10 258);
+  /* chart palette: blue family + gold + orange */
+  --chart-1: oklch(0.45 0.15 258);
+  --chart-2: oklch(0.62 0.13 240);
+  --chart-3: oklch(0.74 0.10 220);
+  --chart-4: oklch(0.80 0.14 85);
+  --chart-5: oklch(0.66 0.17 40);
+  /* Bluebird brand tokens for custom UI */
+  --bb-blue: #0b3c8a;
+  --bb-blue-600: #1d6fb8;
+  --bb-gold: #f2b705;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --primary: oklch(0.65 0.14 250);
+    --primary-foreground: oklch(0.15 0.02 258);
+    --ring: oklch(0.65 0.14 250);
+    --accent: oklch(0.30 0.06 258);
+    --accent-foreground: oklch(0.95 0.02 250);
+    --chart-1: oklch(0.68 0.14 250);
+    --chart-2: oklch(0.60 0.13 235);
+    --chart-3: oklch(0.78 0.10 215);
+    --chart-4: oklch(0.82 0.15 85);
+    --chart-5: oklch(0.70 0.17 40);
+  }
+}
+
+/* Bluebird gradient header bar */
+.bb-header {
+  background: linear-gradient(90deg, var(--bb-blue) 0%, var(--bb-blue-600) 100%);
+}
