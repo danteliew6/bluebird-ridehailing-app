@@ -9,9 +9,11 @@ import {
   DataTable,
   BarChart,
 } from '@databricks/appkit-ui/react';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import {
   Activity,
   AlertTriangle,
@@ -132,73 +134,81 @@ function StatTile({
 }
 
 // ---------------------------------------------------------------------------
-// The live zone map — projects lat/lng into a pixel-accurate SVG.
-// The viewBox is sized to the measured container width (not a fixed aspect), so the
-// map fills the card instead of letterboxing into a narrow centred band.
+// The live zone map — a real slippy map (Leaflet + CARTO basemap tiles) with a
+// circle marker per zone: size = demand, color = supply gap (no-driver rate).
 // ---------------------------------------------------------------------------
+const MAP_H = 420;
 function ZoneMap({
   zones, selectedId, onSelect,
 }: { zones: ZoneRow[]; selectedId: string | null; onSelect: (z: ZoneRow | null) => void }) {
-  const wrapRef = useRef<HTMLDivElement | null>(null);
-  const [w, setW] = useState(760);
-  const H = 360, PAD = 52;
+  const elRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const layerRef = useRef<L.LayerGroup | null>(null);
+  const fitSigRef = useRef<string>('');
 
-  useLayoutEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const measure = () => setW(el.clientWidth || 760);
-    measure();
-    const ro = new ResizeObserver(measure);
+  // create the map once
+  useEffect(() => {
+    if (!elRef.current || mapRef.current) return;
+    const map = L.map(elRef.current, { zoomControl: true, scrollWheelZoom: false, attributionControl: true })
+      .setView([-2.5, 118], 4);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      subdomains: 'abcd', maxZoom: 19,
+      attribution: '&copy; OpenStreetMap &copy; CARTO',
+    }).addTo(map);
+    layerRef.current = L.layerGroup().addTo(map);
+    mapRef.current = map;
+    return () => { map.remove(); mapRef.current = null; layerRef.current = null; };
+  }, []);
+
+  // keep the map sized to its container
+  useEffect(() => {
+    const el = elRef.current, map = mapRef.current;
+    if (!el || !map) return;
+    const ro = new ResizeObserver(() => map.invalidateSize());
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
 
-  const proj = useMemo(() => {
-    if (zones.length === 0) return null;
-    const lats = zones.map((z) => N(z.lat)), lngs = zones.map((z) => N(z.lng));
-    const minLat = Math.min(...lats), maxLat = Math.max(...lats);
-    const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
-    return {
-      minLat, minLng, dLat: (maxLat - minLat) || 1, dLng: (maxLng - minLng) || 1,
-      maxDemand: Math.max(...zones.map((z) => N(z.demand)), 1),
-    };
-  }, [zones]);
-
-  const showAllLabels = zones.length <= 9;
+  // redraw markers whenever the zone slice or selection changes
+  useEffect(() => {
+    const map = mapRef.current, layer = layerRef.current;
+    if (!map || !layer) return;
+    layer.clearLayers();
+    if (zones.length === 0) return;
+    const maxDemand = Math.max(...zones.map((z) => N(z.demand)), 1);
+    const pts: [number, number][] = [];
+    zones.forEach((z) => {
+      const lat = N(z.lat), lng = N(z.lng);
+      pts.push([lat, lng]);
+      const col = gapColor(N(z.no_driver_rate));
+      const sel = z.zone_id === selectedId;
+      const r = 8 + Math.sqrt(N(z.demand) / maxDemand) * 20;
+      const marker = L.circleMarker([lat, lng], {
+        radius: r, color: col, weight: sel ? 3 : 1.5, fillColor: col, fillOpacity: 0.4,
+      });
+      marker.bindTooltip(
+        `<b>${z.area_name}</b><br/>demand ${N(z.demand)} · no-driver ${fmtPct(N(z.no_driver_rate))} · surge ${N(z.avg_surge)}×`,
+        { direction: 'top', offset: [0, -4] },
+      );
+      marker.on('click', () => onSelect(sel ? null : z));
+      marker.addTo(layer);
+    });
+    // only recentre when the set of zones changes (not on mere selection)
+    const sig = zones.map((z) => z.zone_id).sort().join(',');
+    if (sig !== fitSigRef.current) {
+      fitSigRef.current = sig;
+      if (pts.length === 1) map.setView(pts[0], 12);
+      else map.fitBounds(L.latLngBounds(pts).pad(0.25), { animate: false });
+    }
+  }, [zones, selectedId, onSelect]);
 
   return (
-    <div ref={wrapRef} className="w-full">
-      {!proj ? (
-        <div className="text-sm text-muted-foreground p-6 text-center" style={{ height: H }}>No zone activity in this window.</div>
-      ) : (
-        <svg width="100%" height={H} viewBox={`0 0 ${w} ${H}`} preserveAspectRatio="none" role="img" aria-label="Live zone demand map">
-          <rect x={0} y={0} width={w} height={H} rx={12} className="fill-muted/40" />
-          {zones.map((z) => {
-            const cx = PAD + ((N(z.lng) - proj.minLng) / proj.dLng) * (w - 2 * PAD);
-            const cy = PAD + (1 - (N(z.lat) - proj.minLat) / proj.dLat) * (H - 2 * PAD);
-            const r = 9 + Math.sqrt(N(z.demand) / proj.maxDemand) * 22;
-            const col = gapColor(N(z.no_driver_rate));
-            const isSel = z.zone_id === selectedId;
-            const critical = N(z.no_driver_rate) >= 0.15;
-            return (
-              <g key={z.zone_id} onClick={() => onSelect(isSel ? null : z)} style={{ cursor: 'pointer' }}>
-                <circle
-                  cx={cx} cy={cy} r={r}
-                  fill={col} fillOpacity={0.32}
-                  stroke={col} strokeWidth={isSel ? 3 : 1.5}
-                  className={critical ? 'animate-pulse' : ''}
-                />
-                <circle cx={cx} cy={cy} r={3} fill={col} />
-                <title>{`${z.area_name} · demand ${N(z.demand)} · no-driver ${fmtPct(N(z.no_driver_rate))} · surge ${N(z.avg_surge)}×`}</title>
-                {(isSel || critical || showAllLabels) && (
-                  <text x={cx} y={cy + r + 13} textAnchor="middle" className="fill-foreground" style={{ fontSize: 11, fontWeight: 500 }}>
-                    {z.area_name}
-                  </text>
-                )}
-              </g>
-            );
-          })}
-        </svg>
+    <div className="relative w-full rounded-lg overflow-hidden border" style={{ height: MAP_H }}>
+      <div ref={elRef} className="absolute inset-0" style={{ zIndex: 0 }} />
+      {zones.length === 0 && (
+        <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground bg-background/70">
+          No zone activity in this window.
+        </div>
       )}
     </div>
   );
