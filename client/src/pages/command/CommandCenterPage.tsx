@@ -9,7 +9,7 @@ import {
   DataTable,
   BarChart,
 } from '@databricks/appkit-ui/react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import {
@@ -132,53 +132,75 @@ function StatTile({
 }
 
 // ---------------------------------------------------------------------------
-// The live zone map — projects lat/lng into an SVG viewbox.
+// The live zone map — projects lat/lng into a pixel-accurate SVG.
+// The viewBox is sized to the measured container width (not a fixed aspect), so the
+// map fills the card instead of letterboxing into a narrow centred band.
 // ---------------------------------------------------------------------------
 function ZoneMap({
   zones, selectedId, onSelect,
 }: { zones: ZoneRow[]; selectedId: string | null; onSelect: (z: ZoneRow | null) => void }) {
-  const W = 400, H = 300, PAD = 34;
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [w, setW] = useState(760);
+  const H = 360, PAD = 52;
+
+  useLayoutEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const measure = () => setW(el.clientWidth || 760);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const proj = useMemo(() => {
     if (zones.length === 0) return null;
     const lats = zones.map((z) => N(z.lat)), lngs = zones.map((z) => N(z.lng));
     const minLat = Math.min(...lats), maxLat = Math.max(...lats);
     const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
-    const dLat = maxLat - minLat || 1, dLng = maxLng - minLng || 1;
-    const maxDemand = Math.max(...zones.map((z) => N(z.demand)), 1);
-    return { minLat, maxLat, minLng, maxLng, dLat, dLng, maxDemand };
+    return {
+      minLat, minLng, dLat: (maxLat - minLat) || 1, dLng: (maxLng - minLng) || 1,
+      maxDemand: Math.max(...zones.map((z) => N(z.demand)), 1),
+    };
   }, [zones]);
 
-  if (!proj) return <div className="text-sm text-muted-foreground p-6 text-center">No zone activity in this window.</div>;
+  const showAllLabels = zones.length <= 9;
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 340 }} role="img" aria-label="Live zone demand map">
-      <rect x={0} y={0} width={W} height={H} rx={10} className="fill-muted/40" />
-      {zones.map((z) => {
-        const cx = PAD + ((N(z.lng) - proj.minLng) / proj.dLng) * (W - 2 * PAD);
-        const cy = PAD + (1 - (N(z.lat) - proj.minLat) / proj.dLat) * (H - 2 * PAD);
-        const r = 6 + Math.sqrt(N(z.demand) / proj.maxDemand) * 20;
-        const col = gapColor(N(z.no_driver_rate));
-        const isSel = z.zone_id === selectedId;
-        const critical = N(z.no_driver_rate) >= 0.15;
-        return (
-          <g key={z.zone_id} onClick={() => onSelect(isSel ? null : z)} style={{ cursor: 'pointer' }}>
-            <circle
-              cx={cx} cy={cy} r={r}
-              fill={col} fillOpacity={0.35}
-              stroke={col} strokeWidth={isSel ? 3 : 1.5}
-              className={critical ? 'animate-pulse' : ''}
-            />
-            <circle cx={cx} cy={cy} r={2.5} fill={col} />
-            <title>{`${z.area_name} · demand ${N(z.demand)} · no-driver ${fmtPct(N(z.no_driver_rate))} · surge ${N(z.avg_surge)}×`}</title>
-            {(isSel || critical) && (
-              <text x={cx} y={cy - r - 3} textAnchor="middle" className="fill-foreground" style={{ fontSize: 9, fontWeight: 600 }}>
-                {z.area_name}
-              </text>
-            )}
-          </g>
-        );
-      })}
-    </svg>
+    <div ref={wrapRef} className="w-full">
+      {!proj ? (
+        <div className="text-sm text-muted-foreground p-6 text-center" style={{ height: H }}>No zone activity in this window.</div>
+      ) : (
+        <svg width="100%" height={H} viewBox={`0 0 ${w} ${H}`} preserveAspectRatio="none" role="img" aria-label="Live zone demand map">
+          <rect x={0} y={0} width={w} height={H} rx={12} className="fill-muted/40" />
+          {zones.map((z) => {
+            const cx = PAD + ((N(z.lng) - proj.minLng) / proj.dLng) * (w - 2 * PAD);
+            const cy = PAD + (1 - (N(z.lat) - proj.minLat) / proj.dLat) * (H - 2 * PAD);
+            const r = 9 + Math.sqrt(N(z.demand) / proj.maxDemand) * 22;
+            const col = gapColor(N(z.no_driver_rate));
+            const isSel = z.zone_id === selectedId;
+            const critical = N(z.no_driver_rate) >= 0.15;
+            return (
+              <g key={z.zone_id} onClick={() => onSelect(isSel ? null : z)} style={{ cursor: 'pointer' }}>
+                <circle
+                  cx={cx} cy={cy} r={r}
+                  fill={col} fillOpacity={0.32}
+                  stroke={col} strokeWidth={isSel ? 3 : 1.5}
+                  className={critical ? 'animate-pulse' : ''}
+                />
+                <circle cx={cx} cy={cy} r={3} fill={col} />
+                <title>{`${z.area_name} · demand ${N(z.demand)} · no-driver ${fmtPct(N(z.no_driver_rate))} · surge ${N(z.avg_surge)}×`}</title>
+                {(isSel || critical || showAllLabels) && (
+                  <text x={cx} y={cy + r + 13} textAnchor="middle" className="fill-foreground" style={{ fontSize: 11, fontWeight: 500 }}>
+                    {z.area_name}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+      )}
+    </div>
   );
 }
 

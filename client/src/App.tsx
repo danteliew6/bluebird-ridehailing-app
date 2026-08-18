@@ -1,4 +1,4 @@
-import { createBrowserRouter, RouterProvider, NavLink, Outlet, Navigate } from 'react-router';
+import { createBrowserRouter, RouterProvider, NavLink, Outlet, Navigate, useLocation } from 'react-router';
 import { useState } from 'react';
 import {
   Button,
@@ -9,11 +9,8 @@ import {
   useIsMobile,
 } from '@databricks/appkit-ui/react';
 import { Menu } from 'lucide-react';
-import { CommandCenterPage } from './pages/command/CommandCenterPage';
-import { OverviewPage } from './pages/overview/OverviewPage';
-import { AiBiDashboardPage } from './pages/dashboard/AiBiDashboardPage';
+import { OperationsHubPage } from './pages/hub/OperationsHubPage';
 import { AskBluebirdPage } from './pages/genie/AskBluebirdPage';
-import { FleetForecastPage } from './pages/serving/FleetForecastPage';
 import { DataAccessPage } from './pages/governance/DataAccessPage';
 import { ArchitecturePage } from './pages/architecture/ArchitecturePage';
 
@@ -74,24 +71,28 @@ const mobileNavLinkClass = ({ isActive }: { isActive: boolean }) =>
 
 type NavLinkClassFn = (props: { isActive: boolean }) => string;
 
-const LINKS = [
-  { to: '/command', label: 'Command Center' },
-  { to: '/overview', label: 'Operations' },
-  { to: '/dashboard', label: 'AI/BI Dashboard' },
+const HUB_PATHS = ['/command', '/overview', '/dashboard', '/fleet'];
+
+const LINKS: { to: string; label: string; match?: string[] }[] = [
+  { to: '/command', label: 'Operations Hub', match: HUB_PATHS },
   { to: '/ask', label: 'Ask Bluebird' },
-  { to: '/fleet', label: 'Fleet & Forecast' },
   { to: '/access', label: 'Data Access' },
   { to: '/architecture', label: 'Architecture' },
 ];
 
 function NavLinks({ className, linkClass, onClick }: { className?: string; linkClass: NavLinkClassFn; onClick?: () => void }) {
+  const { pathname } = useLocation();
   return (
     <nav className={className}>
-      {LINKS.map((l) => (
-        <NavLink key={l.to} to={l.to} className={linkClass} onClick={onClick}>
-          {l.label}
-        </NavLink>
-      ))}
+      {LINKS.map((l) => {
+        // The hub link stays active across all of its sub-view paths.
+        const active = l.match ? l.match.includes(pathname) : pathname === l.to;
+        return (
+          <NavLink key={l.to} to={l.to} className={linkClass({ isActive: active })} onClick={onClick} end>
+            {l.label}
+          </NavLink>
+        );
+      })}
     </nav>
   );
 }
@@ -135,11 +136,11 @@ const router = createBrowserRouter([
     element: <Layout />,
     children: [
       { path: '/', element: <Navigate to="/command" replace /> },
-      { path: '/command', element: <CommandCenterPage /> },
-      { path: '/overview', element: <OverviewPage /> },
-      { path: '/dashboard', element: <AiBiDashboardPage /> },
+      { path: '/command', element: <OperationsHubPage /> },
+      { path: '/overview', element: <OperationsHubPage /> },
+      { path: '/dashboard', element: <OperationsHubPage /> },
+      { path: '/fleet', element: <OperationsHubPage /> },
       { path: '/ask', element: <AskBluebirdPage /> },
-      { path: '/fleet', element: <FleetForecastPage /> },
       { path: '/access', element: <DataAccessPage /> },
       { path: '/architecture', element: <ArchitecturePage /> },
     ],

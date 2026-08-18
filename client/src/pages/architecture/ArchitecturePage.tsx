@@ -19,6 +19,25 @@ const NODE_BY_ID: Record<string, ArchNode> = Object.fromEntries(
   LAYERS.flatMap((l) => l.nodes).map((n) => [n.id, n]),
 );
 
+// Column + row index of every node (drives connector routing).
+const COL_OF: Record<string, number> = {};
+const ROW_OF: Record<string, number> = {};
+LAYERS.forEach((l, ci) => l.nodes.forEach((n, ri) => { COL_OF[n.id] = ci; ROW_OF[n.id] = ri; }));
+
+// Assign each cross-column edge its own vertical channel in the gutter it crosses, so
+// parallel connectors (fan-in / fan-out) don't stack on the same line. Keyed "from->to".
+const CHANNEL_FRAC: Record<string, number> = {};
+{
+  const byGutter: Record<number, typeof EDGES> = {};
+  EDGES.forEach((e) => {
+    if (COL_OF[e.to] > COL_OF[e.from]) (byGutter[COL_OF[e.from]] ??= []).push(e);
+  });
+  Object.values(byGutter).forEach((list) => {
+    list.sort((a, b) => (ROW_OF[a.from] - ROW_OF[b.from]) || (ROW_OF[a.to] - ROW_OF[b.to]));
+    list.forEach((e, i) => { CHANNEL_FRAC[`${e.from}->${e.to}`] = (i + 1) / (list.length + 1); });
+  });
+}
+
 export function ArchitecturePage() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const nodeRefs = useRef<Map<string, HTMLElement>>(new Map());
@@ -42,37 +61,33 @@ export function ArchitecturePage() {
       if (!a || !b) continue;
       const ar = a.getBoundingClientRect();
       const br = b.getBoundingClientRect();
-      // node centers relative to the container
-      const acx = ar.left - cr.left + ar.width / 2;
-      const acy = ar.top - cr.top + ar.height / 2;
-      const bcx = br.left - cr.left + br.width / 2;
-      const bcy = br.top - cr.top + br.height / 2;
-      const dx = bcx - acx;
-      const dy = bcy - acy;
+      let d: string;
 
-      // Pick anchors from geometry so same-column (vertical) hops connect
-      // bottom→top and cross-column hops connect right/left→left/right —
-      // otherwise a same-column edge curls backward.
-      let x1: number, y1: number, x2: number, y2: number;
-      let c1x: number, c1y: number, c2x: number, c2y: number;
-      if (Math.abs(dx) >= Math.abs(dy)) {
-        const dir = dx >= 0 ? 1 : -1; // 1 = B is to the right
-        x1 = dir > 0 ? ar.right - cr.left : ar.left - cr.left;
-        y1 = acy;
-        x2 = dir > 0 ? br.left - cr.left : br.right - cr.left;
-        y2 = bcy;
-        const off = Math.max(24, Math.abs(x2 - x1) / 2);
-        c1x = x1 + dir * off; c1y = y1; c2x = x2 - dir * off; c2y = y2;
+      if (COL_OF[e.from] === COL_OF[e.to]) {
+        // Same column → straight vertical connector between stacked nodes.
+        const down = ROW_OF[e.to] > ROW_OF[e.from];
+        const x = ar.left - cr.left + ar.width / 2;
+        const y1 = (down ? ar.bottom : ar.top) - cr.top;
+        const y2 = (down ? br.top : br.bottom) - cr.top;
+        d = `M ${x} ${y1} L ${x} ${y2}`;
       } else {
-        const dir = dy >= 0 ? 1 : -1; // 1 = B is below
-        x1 = acx;
-        y1 = dir > 0 ? ar.bottom - cr.top : ar.top - cr.top;
-        x2 = bcx;
-        y2 = dir > 0 ? br.top - cr.top : br.bottom - cr.top;
-        const off = Math.max(18, Math.abs(y2 - y1) / 2);
-        c1x = x1; c1y = y1 + dir * off; c2x = x2; c2y = y2 - dir * off;
+        // Cross-column → orthogonal elbow routed through a dedicated gutter channel,
+        // with rounded corners. Keeps every line in the gutters (never over a card).
+        const x1 = ar.right - cr.left;
+        const y1 = ar.top - cr.top + ar.height / 2;
+        const x2 = br.left - cr.left;
+        const y2 = br.top - cr.top + br.height / 2;
+        if (Math.abs(y2 - y1) < 3) {
+          d = `M ${x1} ${y1} L ${x2} ${y2}`;
+        } else {
+          const frac = CHANNEL_FRAC[`${e.from}->${e.to}`] ?? 0.5;
+          const cx = x1 + (x2 - x1) * frac;
+          const dirY = y2 > y1 ? 1 : -1;
+          const r = Math.max(2, Math.min(10, (x2 - x1) * frac / 2, (x2 - x1) * (1 - frac) / 2, Math.abs(y2 - y1) / 2));
+          d = `M ${x1} ${y1} L ${cx - r} ${y1} Q ${cx} ${y1} ${cx} ${y1 + dirY * r} L ${cx} ${y2 - dirY * r} Q ${cx} ${y2} ${cx + r} ${y2} L ${x2} ${y2}`;
+        }
       }
-      next.push({ from: e.from, to: e.to, label: e.label, d: `M${x1},${y1} C${c1x},${c1y} ${c2x},${c2y} ${x2},${y2}` });
+      next.push({ from: e.from, to: e.to, label: e.label, d });
     }
     setPaths(next);
   }, []);
