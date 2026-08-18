@@ -9,6 +9,7 @@ import {
   useIsMobile,
 } from '@databricks/appkit-ui/react';
 import { Menu } from 'lucide-react';
+import { CommandCenterPage } from './pages/command/CommandCenterPage';
 import { OverviewPage } from './pages/overview/OverviewPage';
 import { AiBiDashboardPage } from './pages/dashboard/AiBiDashboardPage';
 import { AskBluebirdPage } from './pages/genie/AskBluebirdPage';
@@ -74,6 +75,7 @@ const mobileNavLinkClass = ({ isActive }: { isActive: boolean }) =>
 type NavLinkClassFn = (props: { isActive: boolean }) => string;
 
 const LINKS = [
+  { to: '/command', label: 'Command Center' },
   { to: '/overview', label: 'Operations' },
   { to: '/dashboard', label: 'AI/BI Dashboard' },
   { to: '/ask', label: 'Ask Bluebird' },
@@ -132,7 +134,8 @@ const router = createBrowserRouter([
   {
     element: <Layout />,
     children: [
-      { path: '/', element: <Navigate to="/overview" replace /> },
+      { path: '/', element: <Navigate to="/command" replace /> },
+      { path: '/command', element: <CommandCenterPage /> },
       { path: '/overview', element: <OverviewPage /> },
       { path: '/dashboard', element: <AiBiDashboardPage /> },
       { path: '/ask', element: <AskBluebirdPage /> },

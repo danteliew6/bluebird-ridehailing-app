@@ -5,6 +5,54 @@ import type { SQLTypeMarker, SQLStringMarker, SQLNumberMarker, SQLBooleanMarker,
 
 declare module "@databricks/appkit-ui/react" {
   interface QueryRegistry {
+    cc_hourly_city: {
+        name: "cc_hourly_city";
+        parameters: Record<string, never>;
+        result: Array<{
+          /** @sqlType STRING */
+          city: string;
+          /** @sqlType INT */
+          hour_of_day: number;
+          /** @sqlType BIGINT */
+          trips: number;
+          /** @sqlType BIGINT */
+          completed: number;
+          /** @sqlType DECIMAL(15,4) */
+          no_driver_rate: number;
+          /** @sqlType DECIMAL(15,4) */
+          cancel_rate: number;
+          /** @sqlType DOUBLE */
+          avg_surge: number;
+          /** @sqlType DOUBLE */
+          avg_wait_min: number;
+        }>;
+      };
+    cc_zone_live: {
+        name: "cc_zone_live";
+        parameters: Record<string, never>;
+        result: Array<{
+          /** @sqlType STRING */
+          zone_id: string;
+          /** @sqlType STRING */
+          area_name: string;
+          /** @sqlType STRING */
+          city: string;
+          /** @sqlType STRING */
+          zone_type: string;
+          /** @sqlType DOUBLE */
+          lat: number;
+          /** @sqlType DOUBLE */
+          lng: number;
+          /** @sqlType INT */
+          hour_of_day: number;
+          /** @sqlType BIGINT */
+          demand: number;
+          /** @sqlType DECIMAL(15,4) */
+          no_driver_rate: number;
+          /** @sqlType DOUBLE */
+          avg_surge: number;
+        }>;
+      };
     forecast_by_city: {
         name: "forecast_by_city";
         parameters: Record<string, never>;

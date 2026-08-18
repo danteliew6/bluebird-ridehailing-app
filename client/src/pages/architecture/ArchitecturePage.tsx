@@ -3,6 +3,7 @@
    computed paths to state — via a layout effect and async resize/observer callbacks
    (which run outside React's commit phase, where setState is expected). */
 import { Card, CardContent, Badge, Button } from '@databricks/appkit-ui/react';
+import { ArrowRight } from 'lucide-react';
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { LAYERS, EDGES, CATEGORIES, GOVERNANCE } from './archConfig';
 import type { ArchNode, CategoryKey } from './archConfig';
@@ -41,12 +42,37 @@ export function ArchitecturePage() {
       if (!a || !b) continue;
       const ar = a.getBoundingClientRect();
       const br = b.getBoundingClientRect();
-      const x1 = ar.right - cr.left;
-      const y1 = ar.top - cr.top + ar.height / 2;
-      const x2 = br.left - cr.left;
-      const y2 = br.top - cr.top + br.height / 2;
-      const dx = Math.max(28, (x2 - x1) / 2);
-      next.push({ from: e.from, to: e.to, label: e.label, d: `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}` });
+      // node centers relative to the container
+      const acx = ar.left - cr.left + ar.width / 2;
+      const acy = ar.top - cr.top + ar.height / 2;
+      const bcx = br.left - cr.left + br.width / 2;
+      const bcy = br.top - cr.top + br.height / 2;
+      const dx = bcx - acx;
+      const dy = bcy - acy;
+
+      // Pick anchors from geometry so same-column (vertical) hops connect
+      // bottom→top and cross-column hops connect right/left→left/right —
+      // otherwise a same-column edge curls backward.
+      let x1: number, y1: number, x2: number, y2: number;
+      let c1x: number, c1y: number, c2x: number, c2y: number;
+      if (Math.abs(dx) >= Math.abs(dy)) {
+        const dir = dx >= 0 ? 1 : -1; // 1 = B is to the right
+        x1 = dir > 0 ? ar.right - cr.left : ar.left - cr.left;
+        y1 = acy;
+        x2 = dir > 0 ? br.left - cr.left : br.right - cr.left;
+        y2 = bcy;
+        const off = Math.max(24, Math.abs(x2 - x1) / 2);
+        c1x = x1 + dir * off; c1y = y1; c2x = x2 - dir * off; c2y = y2;
+      } else {
+        const dir = dy >= 0 ? 1 : -1; // 1 = B is below
+        x1 = acx;
+        y1 = dir > 0 ? ar.bottom - cr.top : ar.top - cr.top;
+        x2 = bcx;
+        y2 = dir > 0 ? br.top - cr.top : br.bottom - cr.top;
+        const off = Math.max(18, Math.abs(y2 - y1) / 2);
+        c1x = x1; c1y = y1 + dir * off; c2x = x2; c2y = y2 - dir * off;
+      }
+      next.push({ from: e.from, to: e.to, label: e.label, d: `M${x1},${y1} C${c1x},${c1y} ${c2x},${c2y} ${x2},${y2}` });
     }
     setPaths(next);
   }, []);
@@ -199,22 +225,46 @@ export function ArchitecturePage() {
         <p className="text-sm text-muted-foreground text-center">Select a component above to see what it does and how it fits the flow.</p>
       )}
 
-      {/* competitive framing */}
+      {/* competitive framing — before → after, graphical */}
       <Card className="shadow-sm">
         <CardContent className="pt-5">
-          <div className="text-sm font-semibold text-foreground mb-2">Replaces a fragmented stack</div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-            <div className="rounded-md border bg-card p-3">
-              <div className="font-semibold text-muted-foreground">Before</div>
-              <div className="mt-1 text-foreground/80">BigQuery warehouse · QuickSuite BI · self-built OSS pipelines, monitoring, governance &amp; MLflow — stitched together.</div>
+          <div className="text-sm font-semibold text-foreground mb-4">One governed platform replaces a fragmented stack</div>
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-4 items-stretch">
+            {/* BEFORE */}
+            <div className="rounded-lg border border-dashed border-muted-foreground/40 bg-muted/30 p-4">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-3">
+                Before · 6 disconnected systems
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {['BigQuery', 'QuickSuite BI', 'Amazon Q', 'OSS pipelines', 'OSS MLflow', 'OSS monitoring', 'OSS governance'].map((t) => (
+                  <span key={t} className="text-[11px] rounded-md border border-muted-foreground/30 bg-card px-2 py-1 text-muted-foreground line-through decoration-red-400/70">
+                    {t}
+                  </span>
+                ))}
+              </div>
+              <div className="text-[11px] text-red-500/80 mt-3">Stitched together · governance &amp; monitoring rebuilt on OSS</div>
             </div>
-            <div className="rounded-md border bg-card p-3">
-              <div className="font-semibold text-muted-foreground">The gap</div>
-              <div className="mt-1 text-foreground/80">Governance &amp; pipeline monitoring rebuilt on OSS; dirty data blocks self-service analytics.</div>
+
+            {/* ARROW */}
+            <div className="flex md:flex-col items-center justify-center gap-1 text-primary">
+              <ArrowRight className="h-7 w-7 rotate-90 md:rotate-0" />
+              <span className="text-[11px] font-semibold">Databricks</span>
             </div>
-            <div className="rounded-md border p-3" style={{ borderColor: CATEGORIES.serve.color }}>
-              <div className="font-semibold" style={{ color: CATEGORIES.serve.color }}>After — Databricks</div>
-              <div className="mt-1 text-foreground/80">One governed Lakehouse: managed pipelines + DQ, Unity Catalog governance, Genie, AI/BI, AutoML and apps — BigQuery stays as a source via federation.</div>
+
+            {/* AFTER */}
+            <div className="rounded-lg border-2 p-4" style={{ borderColor: CATEGORIES.serve.color, backgroundColor: `${CATEGORIES.serve.color}0F` }}>
+              <div className="text-[11px] font-semibold uppercase tracking-wide mb-3" style={{ color: CATEGORIES.serve.color }}>
+                After · one governed Lakehouse
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {['Lakeflow + DQ', 'Unity Catalog', 'Genie', 'AI/BI', 'AutoML + Serving', 'Databricks Apps'].map((t) => (
+                  <span key={t} className="text-[11px] rounded-md px-2 py-1 font-medium"
+                        style={{ backgroundColor: `${CATEGORIES.serve.color}1A`, color: CATEGORIES.serve.color }}>
+                    ✓ {t}
+                  </span>
+                ))}
+              </div>
+              <div className="text-[11px] mt-3" style={{ color: CATEGORIES.serve.color }}>BigQuery stays a source via federation — no rip-and-replace</div>
             </div>
           </div>
         </CardContent>

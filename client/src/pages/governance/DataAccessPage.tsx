@@ -24,7 +24,7 @@ interface Persona {
 }
 
 const PERSONAS: Persona[] = [
-  { key: 'admin', email: 'dante.liew@databricks.com', label: 'National Admin', role: 'Platform admin', scope: 'All cities · clear PII' },
+  { key: 'admin', email: 'dante.liew@databricks.com', label: 'Admin', role: 'Platform admin', scope: 'All cities · clear PII' },
   { key: 'analyst', email: 'analyst.national@bluebird.co.id', label: 'National Analyst', role: 'HQ analytics', scope: 'All cities · masked PII' },
   { key: 'jakarta', email: 'jakarta.ops@bluebird.co.id', label: 'Jakarta Ops', role: 'Regional ops', scope: 'Jakarta only · masked PII' },
   { key: 'bali', email: 'bali.ops@bluebird.co.id', label: 'Bali Ops', role: 'Regional ops', scope: 'Denpasar only · masked PII' },
