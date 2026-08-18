@@ -9,7 +9,7 @@ import {
   DataTable,
   BarChart,
 } from '@databricks/appkit-ui/react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import {
@@ -24,7 +24,35 @@ import {
   CheckCircle2,
   MessageSquare,
   Car,
+  RefreshCw,
 } from 'lucide-react';
+
+// How often to re-run the underlying analytics queries (feels live; picks up pipeline updates).
+const REFRESH_MS = 20000;
+
+interface BrandRiskRow { fleet_brand: string; at_risk_7d: number }
+
+// ---------------------------------------------------------------------------
+// Data feeders — useAnalyticsQuery is an SSE subscription with no refetch API, so
+// to re-run a query we remount the feeder (via a changing `key`), which re-subscribes.
+// Each feeder pushes its latest result up to the page; the page keeps the previous
+// data in state meanwhile, so refreshes never flash a skeleton.
+// ---------------------------------------------------------------------------
+function HourlyFeeder({ onData }: { onData: (d: HourlyCityRow[]) => void }) {
+  const { data } = useAnalyticsQuery('cc_hourly_city', {});
+  useEffect(() => { if (data) onData(data as HourlyCityRow[]); }, [data, onData]);
+  return null;
+}
+function ZoneFeeder({ onData }: { onData: (d: ZoneRow[]) => void }) {
+  const { data } = useAnalyticsQuery('cc_zone_live', {});
+  useEffect(() => { if (data) onData(data as ZoneRow[]); }, [data, onData]);
+  return null;
+}
+function BrandFeeder({ onData }: { onData: (d: BrandRiskRow[]) => void }) {
+  const { data } = useAnalyticsQuery('risk_by_brand', {});
+  useEffect(() => { if (data) onData(data as BrandRiskRow[]); }, [data, onData]);
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Types (mirror the generated analytics result shapes)
@@ -159,14 +187,23 @@ function ZoneMap({
 // ---------------------------------------------------------------------------
 export function CommandCenterPage() {
   const navigate = useNavigate();
-  const hourly = useAnalyticsQuery('cc_hourly_city', {});
-  const zonesQ = useAnalyticsQuery('cc_zone_live', {});
-  const brandRiskQ = useAnalyticsQuery('risk_by_brand', {});
 
   const [simHour, setSimHour] = useState(18); // open on the evening-peak incident
   const [playing, setPlaying] = useState(true);
   const [city, setCity] = useState('Jakarta');
   const [selZone, setSelZone] = useState<ZoneRow | null>(null);
+
+  // Live data refresh: bump `tick` on a timer to remount the feeders (re-run the queries).
+  const [tick, setTick] = useState(0);
+  const [rows, setRows] = useState<HourlyCityRow[]>([]);
+  const [zoneRows, setZoneRows] = useState<ZoneRow[]>([]);
+  const [brandRisk, setBrandRisk] = useState<BrandRiskRow[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  const onHourly = useCallback((d: HourlyCityRow[]) => { setRows(d); setLoaded(true); setLastUpdated(new Date()); }, []);
+  const onZones = useCallback((d: ZoneRow[]) => setZoneRows(d), []);
+  const onBrand = useCallback((d: BrandRiskRow[]) => setBrandRisk(d), []);
 
   // advance the simulated clock
   useEffect(() => {
@@ -175,8 +212,11 @@ export function CommandCenterPage() {
     return () => clearInterval(t);
   }, [playing]);
 
-  const rows = useMemo(() => (hourly.data ?? []) as HourlyCityRow[], [hourly.data]);
-  const zoneRows = useMemo(() => (zonesQ.data ?? []) as ZoneRow[], [zonesQ.data]);
+  // periodic data refresh
+  useEffect(() => {
+    const t = setInterval(() => setTick((x) => x + 1), REFRESH_MS);
+    return () => clearInterval(t);
+  }, []);
 
   const cities = useMemo(
     () => Array.from(new Set(zoneRows.map((z) => z.city))).sort(),
@@ -237,7 +277,6 @@ export function CommandCenterPage() {
 
   // fleet risk — total flagged (≥50% 7-day risk) is uncapped via risk_by_brand;
   // vehicles_at_risk is LIMIT 50 so it only feeds the table + the ≥85% "critical" subset.
-  const brandRisk = useMemo(() => (brandRiskQ.data ?? []) as { fleet_brand: string; at_risk_7d: number }[], [brandRiskQ.data]);
   const fleetTotal = brandRisk.reduce((s, b) => s + N(b.at_risk_7d), 0);
   const worstBrand = [...brandRisk].sort((a, b) => N(b.at_risk_7d) - N(a.at_risk_7d))[0]?.fleet_brand;
 
@@ -245,8 +284,7 @@ export function CommandCenterPage() {
   const now = new Date();
   const clock = `${DAYS[now.getDay()]} ${now.getDate()} Aug 2026 · ${String(simHour).padStart(2, '0')}:00 WIB`;
 
-  const loading = hourly.loading || zonesQ.loading;
-  const err = hourly.error || zonesQ.error;
+  const loading = !loaded;
 
   // ---- alert feed (derived) ----
   interface Alert { id: string; sev: Tone; icon: ReactNode; title: string; detail: string; action: string; ask?: string; }
@@ -300,6 +338,11 @@ export function CommandCenterPage() {
 
   return (
     <div className="space-y-5 w-full max-w-7xl mx-auto">
+      {/* invisible data feeders — remount each tick to re-run the queries (live refresh) */}
+      <HourlyFeeder key={`h-${tick}`} onData={onHourly} />
+      <ZoneFeeder key={`z-${tick}`} onData={onZones} />
+      <BrandFeeder key={`b-${tick}`} onData={onBrand} />
+
       {/* header + sim clock controls */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
@@ -319,10 +362,12 @@ export function CommandCenterPage() {
             {playing ? <><Pause className="h-3.5 w-3.5" /> Live</> : <><Play className="h-3.5 w-3.5" /> Paused</>}
           </Button>
           <Button variant="ghost" size="sm" onClick={() => { setSimHour(18); setPlaying(false); }}>Jump to peak</Button>
+          <Button variant="ghost" size="sm" onClick={() => setTick((x) => x + 1)} className="gap-1 text-muted-foreground" title="Refresh now">
+            <RefreshCw className="h-3.5 w-3.5" />
+            {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : 'Refresh'}
+          </Button>
         </div>
       </div>
-
-      {err && <div className="text-destructive bg-destructive/10 p-3 rounded-md text-sm">Error loading operations feed: {err}</div>}
 
       {/* status banner */}
       {!loading && cur && (
@@ -501,7 +546,7 @@ export function CommandCenterPage() {
       </div>
 
       <p className="text-xs text-muted-foreground text-center">
-        Simulated live view over the last 30 days of governed <span className="font-mono">trips_curated_gold</span> · fleet risk from the served AutoML model · all data Unity Catalog governed.
+        Simulated live view over the last 30 days of governed <span className="font-mono">trips_curated_gold</span> · fleet risk from the served AutoML model · queries auto-refresh every {REFRESH_MS / 1000}s · all data Unity Catalog governed.
       </p>
     </div>
   );
