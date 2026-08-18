@@ -12,8 +12,6 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
 import {
   Activity,
   AlertTriangle,
@@ -134,81 +132,114 @@ function StatTile({
 }
 
 // ---------------------------------------------------------------------------
-// The live zone map — a real slippy map (Leaflet + CARTO basemap tiles) with a
-// circle marker per zone: size = demand, color = supply gap (no-driver rate).
+// The live zone map — a real street basemap rendered from CARTO raster tiles laid
+// out by hand (Web-Mercator math), so it needs NO map library (the app build proxy
+// can't fetch leaflet). A circle marker per zone: size = demand, color = supply gap.
 // ---------------------------------------------------------------------------
+const TILE = 256;
 const MAP_H = 420;
+const MAP_PAD = 48;
+const worldX = (lng: number, z: number) => ((lng + 180) / 360) * TILE * 2 ** z;
+const worldY = (lat: number, z: number) => {
+  const s = Math.sin((lat * Math.PI) / 180);
+  return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * TILE * 2 ** z;
+};
+
 function ZoneMap({
   zones, selectedId, onSelect,
 }: { zones: ZoneRow[]; selectedId: string | null; onSelect: (z: ZoneRow | null) => void }) {
-  const elRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<L.Map | null>(null);
-  const layerRef = useRef<L.LayerGroup | null>(null);
-  const fitSigRef = useRef<string>('');
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [w, setW] = useState(760);
 
-  // create the map once
   useEffect(() => {
-    if (!elRef.current || mapRef.current) return;
-    const map = L.map(elRef.current, { zoomControl: true, scrollWheelZoom: false, attributionControl: true })
-      .setView([-2.5, 118], 4);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-      subdomains: 'abcd', maxZoom: 19,
-      attribution: '&copy; OpenStreetMap &copy; CARTO',
-    }).addTo(map);
-    layerRef.current = L.layerGroup().addTo(map);
-    mapRef.current = map;
-    return () => { map.remove(); mapRef.current = null; layerRef.current = null; };
-  }, []);
-
-  // keep the map sized to its container
-  useEffect(() => {
-    const el = elRef.current, map = mapRef.current;
-    if (!el || !map) return;
-    const ro = new ResizeObserver(() => map.invalidateSize());
+    const el = wrapRef.current;
+    if (!el) return;
+    const measure = () => setW(el.clientWidth || 760);
+    measure();
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
 
-  // redraw markers whenever the zone slice or selection changes
-  useEffect(() => {
-    const map = mapRef.current, layer = layerRef.current;
-    if (!map || !layer) return;
-    layer.clearLayers();
-    if (zones.length === 0) return;
-    const maxDemand = Math.max(...zones.map((z) => N(z.demand)), 1);
-    const pts: [number, number][] = [];
-    zones.forEach((z) => {
-      const lat = N(z.lat), lng = N(z.lng);
-      pts.push([lat, lng]);
-      const col = gapColor(N(z.no_driver_rate));
-      const sel = z.zone_id === selectedId;
-      const r = 8 + Math.sqrt(N(z.demand) / maxDemand) * 20;
-      const marker = L.circleMarker([lat, lng], {
-        radius: r, color: col, weight: sel ? 3 : 1.5, fillColor: col, fillOpacity: 0.4,
-      });
-      marker.bindTooltip(
-        `<b>${z.area_name}</b><br/>demand ${N(z.demand)} · no-driver ${fmtPct(N(z.no_driver_rate))} · surge ${N(z.avg_surge)}×`,
-        { direction: 'top', offset: [0, -4] },
-      );
-      marker.on('click', () => onSelect(sel ? null : z));
-      marker.addTo(layer);
-    });
-    // only recentre when the set of zones changes (not on mere selection)
-    const sig = zones.map((z) => z.zone_id).sort().join(',');
-    if (sig !== fitSigRef.current) {
-      fitSigRef.current = sig;
-      if (pts.length === 1) map.setView(pts[0], 12);
-      else map.fitBounds(L.latLngBounds(pts).pad(0.25), { animate: false });
+  // choose the zoom that fits all zones, then the world-pixel origin of the viewport
+  const view = useMemo(() => {
+    if (zones.length === 0) return null;
+    const lats = zones.map((z) => N(z.lat)), lngs = zones.map((z) => N(z.lng));
+    const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+    const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+    let z = 15;
+    for (; z > 3; z--) {
+      const spanX = worldX(maxLng, z) - worldX(minLng, z);
+      const spanY = worldY(minLat, z) - worldY(maxLat, z);
+      if (spanX <= w - 2 * MAP_PAD && spanY <= MAP_H - 2 * MAP_PAD) break;
     }
-  }, [zones, selectedId, onSelect]);
+    const originX = worldX((minLng + maxLng) / 2, z) - w / 2;
+    const originY = worldY((minLat + maxLat) / 2, z) - MAP_H / 2;
+    return { z, originX, originY };
+  }, [zones, w]);
+
+  const maxDemand = useMemo(() => Math.max(...zones.map((z) => N(z.demand)), 1), [zones]);
+
+  const tiles = useMemo(() => {
+    if (!view) return [];
+    const { z, originX, originY } = view;
+    const n = 2 ** z;
+    const out: { key: string; src: string; left: number; top: number }[] = [];
+    for (let tx = Math.floor(originX / TILE); tx <= Math.floor((originX + w) / TILE); tx++) {
+      for (let ty = Math.floor(originY / TILE); ty <= Math.floor((originY + MAP_H) / TILE); ty++) {
+        if (ty < 0 || ty >= n) continue;
+        const wx = ((tx % n) + n) % n;
+        const sub = 'abcd'[Math.abs(tx + ty) % 4];
+        out.push({
+          key: `${z}-${tx}-${ty}`,
+          src: `https://${sub}.basemaps.cartocdn.com/light_all/${z}/${wx}/${ty}@2x.png`,
+          left: tx * TILE - originX, top: ty * TILE - originY,
+        });
+      }
+    }
+    return out;
+  }, [view, w]);
+
+  const showAllLabels = zones.length <= 9;
 
   return (
-    <div className="relative w-full rounded-lg overflow-hidden border" style={{ height: MAP_H }}>
-      <div ref={elRef} className="absolute inset-0" style={{ zIndex: 0 }} />
-      {zones.length === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground bg-background/70">
-          No zone activity in this window.
-        </div>
+    <div ref={wrapRef} className="relative w-full rounded-lg overflow-hidden border bg-muted/30" style={{ height: MAP_H }}>
+      {!view ? (
+        <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">No zone activity in this window.</div>
+      ) : (
+        <>
+          {tiles.map((t) => (
+            <img key={t.key} src={t.src} alt="" draggable={false}
+                 style={{ position: 'absolute', left: t.left, top: t.top, width: TILE, height: TILE }} />
+          ))}
+          {zones.map((z) => {
+            const x = worldX(N(z.lng), view.z) - view.originX;
+            const y = worldY(N(z.lat), view.z) - view.originY;
+            const col = gapColor(N(z.no_driver_rate));
+            const sel = z.zone_id === selectedId;
+            const critical = N(z.no_driver_rate) >= 0.15;
+            const r = 8 + Math.sqrt(N(z.demand) / maxDemand) * 18;
+            return (
+              <div key={z.zone_id} onClick={() => onSelect(sel ? null : z)}
+                   title={`${z.area_name} · demand ${N(z.demand)} · no-driver ${fmtPct(N(z.no_driver_rate))} · surge ${N(z.avg_surge)}×`}
+                   className={`absolute cursor-pointer ${critical ? 'animate-pulse' : ''}`}
+                   style={{
+                     left: x, top: y, width: r * 2, height: r * 2, transform: 'translate(-50%,-50%)',
+                     borderRadius: '9999px', background: `${col}66`, border: `${sel ? 3 : 1.5}px solid ${col}`, zIndex: 5,
+                   }}>
+                {(sel || critical || showAllLabels) && (
+                  <span className="absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] font-semibold text-foreground"
+                        style={{ top: r * 2 + 2, textShadow: '0 1px 2px rgba(255,255,255,0.9)' }}>
+                    {z.area_name}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+          <div className="absolute bottom-1 right-2 text-[9px] text-muted-foreground/80 bg-background/70 px-1 rounded" style={{ zIndex: 6 }}>
+            © OpenStreetMap © CARTO
+          </div>
+        </>
       )}
     </div>
   );
