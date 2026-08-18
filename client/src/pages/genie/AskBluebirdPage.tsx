@@ -22,6 +22,8 @@ const SUGGESTIONS = [
 const WORKSPACE_HOST = 'https://fevm-dante-classic-stable.cloud.databricks.com';
 const GENIE_SPACE_ID = '01f19a33de0a1111ab1e0302d7c0b8c7';
 const WORKSPACE_ID = '7474647641788932';
+// Genie embed route — note the /embed/genie/ROOMS/ segment (bare /embed/genie/<id> 404s).
+const GENIE_EMBED_URL = `${WORKSPACE_HOST}/embed/genie/rooms/${GENIE_SPACE_ID}?o=${WORKSPACE_ID}`;
 const GENIE_URL = `${WORKSPACE_HOST}/genie/rooms/${GENIE_SPACE_ID}?o=${WORKSPACE_ID}`;
 
 type Mode = 'native' | 'embedded';
@@ -145,36 +147,31 @@ export function AskBluebirdPage() {
         <>
           <Alert>
             <AlertDescription className="text-xs">
-              <strong>Same Genie space, two delivery styles.</strong> The white-labeled chat embeds
-              this exact governed Genie space <em>inside</em> the app via the Conversation API — no
-              Databricks chrome. This tab opens the native Databricks Genie experience for the same
-              space so you can compare the raw product against the branded surface.
+              <strong>Same Genie space, two delivery styles.</strong> This is the native Databricks
+              Genie experience embedded as-is (full Databricks chrome) — the identical governed space
+              that powers the white-labeled chat. Compare the raw product against the branded surface
+              analysts get in this app.
             </AlertDescription>
           </Alert>
 
-          <div className="border rounded-xl bg-card shadow-sm p-8 flex flex-col items-center justify-center text-center gap-4 min-h-[340px]">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bb-header text-white shadow-sm">
-              <Sparkles className="h-7 w-7" />
-            </div>
-            <div>
-              <div className="font-semibold text-lg text-foreground">Bluebird Data Assistant · Databricks Genie</div>
-              <p className="text-sm text-muted-foreground max-w-md mt-1">
-                Opens the native Genie space in full Databricks chrome. (This workspace doesn&apos;t serve
-                the <code>/embed/genie</code> route yet, so the raw product opens in a new tab rather than an iframe.)
-              </p>
-            </div>
-            <a href={GENIE_URL} target="_blank" rel="noopener noreferrer"
-               className="inline-flex items-center gap-2 rounded-md bb-header text-white px-4 py-2 text-sm font-medium shadow-sm hover:opacity-90 transition-opacity">
-              Open Databricks Genie <ExternalLink className="h-4 w-4" />
-            </a>
-            <p className="text-xs text-muted-foreground max-w-md">
-              Prefer it in-app? The{' '}
-              <button onClick={() => setMode('native')} className="text-primary underline underline-offset-2">
-                white-labeled chat
-              </button>{' '}
-              runs the same governed space natively — same Unity Catalog masks &amp; row-filters enforced.
-            </p>
+          <div className="border rounded-xl bg-card shadow-sm overflow-hidden">
+            <iframe
+              title="Bluebird Data Assistant — Databricks Genie"
+              src={GENIE_EMBED_URL}
+              className="w-full"
+              style={{ height: 'min(720px, 76vh)', border: 'none' }}
+              frameBorder={0}
+              allow="clipboard-write"
+            />
           </div>
+
+          <p className="text-xs text-muted-foreground">
+            If the embed prompts for sign-in, open it directly:{' '}
+            <a href={GENIE_URL} target="_blank" rel="noopener noreferrer"
+               className="text-primary underline underline-offset-2 inline-flex items-center gap-1">
+              open Genie in Databricks <ExternalLink className="h-3 w-3" />
+            </a>
+          </p>
         </>
       )}
     </div>
