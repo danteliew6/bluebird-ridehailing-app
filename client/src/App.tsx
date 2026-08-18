@@ -16,17 +16,34 @@ import { FleetForecastPage } from './pages/serving/FleetForecastPage';
 import { DataAccessPage } from './pages/governance/DataAccessPage';
 import { ArchitecturePage } from './pages/architecture/ArchitecturePage';
 
+// Drop the official logo into client/public/ as bluebird-logo.png (or .svg) — it is
+// picked up automatically. Until then, a stylized blue-bird badge is shown.
+const LOGO_CANDIDATES = ['/bluebird-logo.png', '/bluebird-logo.svg'];
+
 function BluebirdMark() {
+  const [idx, setIdx] = useState(0);
+  const logoOk = idx < LOGO_CANDIDATES.length;
   return (
     <div className="flex items-center gap-2.5">
-      <svg width="30" height="30" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-        <circle cx="24" cy="24" r="24" fill="#ffffff" fillOpacity="0.14" />
-        <path
-          d="M12 30c6 1 11-2 15-8 1 3 0 6-2 8 4 0 8-3 10-8-1 8-8 14-16 14-4 0-7-2-9-5 1 0 2 0 2-1z"
-          fill="var(--bb-gold)"
+      {logoOk ? (
+        <img
+          src={LOGO_CANDIDATES[idx]}
+          alt="Bluebird"
+          className="h-9 w-9 rounded-full bg-white object-contain p-0.5 shadow-sm"
+          onError={() => setIdx((i) => i + 1)}
         />
-        <circle cx="30" cy="18" r="1.6" fill="#0b3c8a" />
-      </svg>
+      ) : (
+        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white shadow-sm">
+          <svg width="26" height="26" viewBox="0 0 64 64" aria-hidden="true">
+            {/* stylized flying bluebird silhouette (fallback mark, not the official trademark) */}
+            <path
+              d="M6 40c10 4 20 3 28-4-1 5-5 9-10 11 8 1 16-2 22-9 3-4 5-9 6-15-4 3-8 4-13 4 4-3 7-7 8-12-5 4-10 6-16 6-3 0-6-1-8-3-4-4-11-4-15 0-3 3-4 7-3 11-2 1-4 3-5 6 3-1 6-1 9 0-2 2-4 5-5 8z"
+              fill="#0b3c8a"
+            />
+            <circle cx="44" cy="20" r="1.8" fill="#ffffff" />
+          </svg>
+        </div>
+      )}
       <div className="leading-tight">
         <div className="text-white font-bold text-base tracking-tight">Bluebird</div>
         <div className="text-white/70 text-[11px] -mt-0.5">Ride-Hailing Intelligence</div>

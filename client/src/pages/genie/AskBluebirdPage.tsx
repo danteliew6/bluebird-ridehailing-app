@@ -69,9 +69,7 @@ export function AskBluebirdPage() {
             </div>
           </div>
         ) : (
-          <div className="flex-1 min-h-0">
-            <GenieChatMessageList messages={messages} status={status} />
-          </div>
+          <GenieChatMessageList messages={messages} status={status} />
         )}
         <div className="border-t p-3">
           <GenieChatInput onSend={sendMessage} placeholder="Ask a question about trips, revenue, fleet…" />
