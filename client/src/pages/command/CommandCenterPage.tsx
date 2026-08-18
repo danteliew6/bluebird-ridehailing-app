@@ -51,12 +51,6 @@ interface ZoneRow {
   no_driver_rate: number;
   avg_surge: number;
 }
-interface VehicleRow {
-  vehicle_id: string;
-  fleet_brand: string;
-  risk_pct: number;
-}
-
 type Tone = 'ok' | 'warn' | 'crit';
 
 // ---------------------------------------------------------------------------
@@ -118,11 +112,11 @@ function ZoneMap({
   const W = 400, H = 300, PAD = 34;
   const proj = useMemo(() => {
     if (zones.length === 0) return null;
-    const lats = zones.map((z) => z.lat), lngs = zones.map((z) => z.lng);
+    const lats = zones.map((z) => N(z.lat)), lngs = zones.map((z) => N(z.lng));
     const minLat = Math.min(...lats), maxLat = Math.max(...lats);
     const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
     const dLat = maxLat - minLat || 1, dLng = maxLng - minLng || 1;
-    const maxDemand = Math.max(...zones.map((z) => z.demand), 1);
+    const maxDemand = Math.max(...zones.map((z) => N(z.demand)), 1);
     return { minLat, maxLat, minLng, maxLng, dLat, dLng, maxDemand };
   }, [zones]);
 
@@ -132,12 +126,12 @@ function ZoneMap({
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 340 }} role="img" aria-label="Live zone demand map">
       <rect x={0} y={0} width={W} height={H} rx={10} className="fill-muted/40" />
       {zones.map((z) => {
-        const cx = PAD + ((z.lng - proj.minLng) / proj.dLng) * (W - 2 * PAD);
-        const cy = PAD + (1 - (z.lat - proj.minLat) / proj.dLat) * (H - 2 * PAD);
-        const r = 6 + Math.sqrt(z.demand / proj.maxDemand) * 20;
-        const col = gapColor(z.no_driver_rate);
+        const cx = PAD + ((N(z.lng) - proj.minLng) / proj.dLng) * (W - 2 * PAD);
+        const cy = PAD + (1 - (N(z.lat) - proj.minLat) / proj.dLat) * (H - 2 * PAD);
+        const r = 6 + Math.sqrt(N(z.demand) / proj.maxDemand) * 20;
+        const col = gapColor(N(z.no_driver_rate));
         const isSel = z.zone_id === selectedId;
-        const critical = z.no_driver_rate >= 0.15;
+        const critical = N(z.no_driver_rate) >= 0.15;
         return (
           <g key={z.zone_id} onClick={() => onSelect(isSel ? null : z)} style={{ cursor: 'pointer' }}>
             <circle
@@ -147,7 +141,7 @@ function ZoneMap({
               className={critical ? 'animate-pulse' : ''}
             />
             <circle cx={cx} cy={cy} r={2.5} fill={col} />
-            <title>{`${z.area_name} · demand ${z.demand} · no-driver ${fmtPct(z.no_driver_rate)} · surge ${z.avg_surge}×`}</title>
+            <title>{`${z.area_name} · demand ${N(z.demand)} · no-driver ${fmtPct(N(z.no_driver_rate))} · surge ${N(z.avg_surge)}×`}</title>
             {(isSel || critical) && (
               <text x={cx} y={cy - r - 3} textAnchor="middle" className="fill-foreground" style={{ fontSize: 9, fontWeight: 600 }}>
                 {z.area_name}
@@ -167,7 +161,7 @@ export function CommandCenterPage() {
   const navigate = useNavigate();
   const hourly = useAnalyticsQuery('cc_hourly_city', {});
   const zonesQ = useAnalyticsQuery('cc_zone_live', {});
-  const vehiclesQ = useAnalyticsQuery('vehicles_at_risk', {});
+  const brandRiskQ = useAnalyticsQuery('risk_by_brand', {});
 
   const [simHour, setSimHour] = useState(18); // open on the evening-peak incident
   const [playing, setPlaying] = useState(true);
@@ -183,7 +177,6 @@ export function CommandCenterPage() {
 
   const rows = useMemo(() => (hourly.data ?? []) as HourlyCityRow[], [hourly.data]);
   const zoneRows = useMemo(() => (zonesQ.data ?? []) as ZoneRow[], [zonesQ.data]);
-  const vehicles = useMemo(() => (vehiclesQ.data ?? []) as VehicleRow[], [vehiclesQ.data]);
 
   const cities = useMemo(
     () => Array.from(new Set(zoneRows.map((z) => z.city))).sort(),
@@ -224,30 +217,29 @@ export function CommandCenterPage() {
   }, [byHour]);
 
   // per-city breakdown at the current hour (worst city first)
+  // NOTE: analytics serializes numerics as strings at runtime — coerce hour_of_day with N()
+  // before comparing, or "3" === 3 fails and these filters silently return nothing.
   const cityAtHour = useMemo(
-    () => rows.filter((r) => r.hour_of_day === simHour).sort((a, b) => N(b.no_driver_rate) - N(a.no_driver_rate)),
+    () => rows.filter((r) => N(r.hour_of_day) === simHour).sort((a, b) => N(b.no_driver_rate) - N(a.no_driver_rate)),
     [rows, simHour],
   );
   const worstCity = cityAtHour[0];
 
   // zones for the map (selected city + current hour)
   const mapZones = useMemo(
-    () => zoneRows.filter((z) => z.city === city && z.hour_of_day === simHour).sort((a, b) => N(b.demand) - N(a.demand)),
+    () => zoneRows.filter((z) => z.city === city && N(z.hour_of_day) === simHour).sort((a, b) => N(b.demand) - N(a.demand)),
     [zoneRows, city, simHour],
   );
   const hotZones = useMemo(
-    () => zoneRows.filter((z) => z.hour_of_day === simHour).sort((a, b) => N(b.no_driver_rate) - N(a.no_driver_rate)).slice(0, 3),
+    () => zoneRows.filter((z) => N(z.hour_of_day) === simHour).sort((a, b) => N(b.no_driver_rate) - N(a.no_driver_rate)).slice(0, 3),
     [zoneRows, simHour],
   );
 
-  // fleet risk counts
-  const critVehicles = vehicles.filter((v) => N(v.risk_pct) >= 85);
-  const warnVehicles = vehicles.filter((v) => N(v.risk_pct) >= 70 && N(v.risk_pct) < 85);
-  const worstBrand = useMemo(() => {
-    const m: Record<string, number> = {};
-    critVehicles.forEach((v) => { m[v.fleet_brand] = (m[v.fleet_brand] ?? 0) + 1; });
-    return Object.entries(m).sort((a, b) => b[1] - a[1])[0]?.[0];
-  }, [critVehicles]);
+  // fleet risk — total flagged (≥50% 7-day risk) is uncapped via risk_by_brand;
+  // vehicles_at_risk is LIMIT 50 so it only feeds the table + the ≥85% "critical" subset.
+  const brandRisk = useMemo(() => (brandRiskQ.data ?? []) as { fleet_brand: string; at_risk_7d: number }[], [brandRiskQ.data]);
+  const fleetTotal = brandRisk.reduce((s, b) => s + N(b.at_risk_7d), 0);
+  const worstBrand = [...brandRisk].sort((a, b) => N(b.at_risk_7d) - N(a.at_risk_7d))[0]?.fleet_brand;
 
   // simulated wall-clock
   const now = new Date();
@@ -288,16 +280,21 @@ export function CommandCenterPage() {
       });
     }
   }
-  if (critVehicles.length > 0) {
+  if (fleetTotal > 0) {
     alerts.push({
       id: 'fleet', sev: 'crit', icon: <Car className="h-4 w-4" />,
-      title: `${critVehicles.length} vehicles at high service risk`,
-      detail: `${critVehicles.length} vehicles predicted ≥85% likely to need service within 7 days${worstBrand ? ` — concentrated in ${worstBrand}` : ''}. A further ${warnVehicles.length} are elevated (70–85%).`,
-      action: 'Pull critical vehicles for preventive maintenance before they fail in service.',
+      title: `${fleetTotal} vehicles flagged for service`,
+      detail: `${fleetTotal} vehicles predicted ≥50% likely to need service within 7 days${worstBrand ? ` — most concentrated in ${worstBrand}` : ''}. The highest-risk units are already at 85%+ (see the watch list).`,
+      action: 'Pull the highest-risk vehicles for preventive maintenance before they fail in service.',
       ask: 'Which fleet brand has the most vehicles predicted to need service?',
     });
   }
   const overall: Tone = alerts.some((a) => a.sev === 'crit') ? 'crit' : alerts.some((a) => a.sev === 'warn') ? 'warn' : 'ok';
+  const hasShortage = alerts.some((a) => a.id === 'shortage');
+  const headline =
+    overall === 'crit'
+      ? hasShortage ? 'ELEVATED — active driver-shortage incident' : 'ELEVATED — incidents require attention'
+      : overall === 'warn' ? 'WATCH — network under pressure' : 'NOMINAL — all systems healthy';
 
   const HOUR_LABELS = [0, 6, 12, 18, 23];
 
@@ -333,9 +330,7 @@ export function CommandCenterPage() {
           overall === 'crit' ? 'bg-red-500/10' : overall === 'warn' ? 'bg-amber-500/10' : 'bg-emerald-500/10'
         }`}>
           {overall === 'ok' ? <CheckCircle2 className="h-5 w-5 text-emerald-600" /> : <AlertTriangle className={`h-5 w-5 ${TONE_TEXT[overall]}`} />}
-          <div className={`font-semibold ${TONE_TEXT[overall]}`}>
-            {overall === 'crit' ? 'ELEVATED — active driver-shortage incident' : overall === 'warn' ? 'WATCH — network under pressure' : 'NOMINAL — all systems healthy'}
-          </div>
+          <div className={`font-semibold ${TONE_TEXT[overall]}`}>{headline}</div>
           <div className="text-sm text-muted-foreground ml-auto">{alerts.length} active alert{alerts.length === 1 ? '' : 's'}</div>
         </div>
       )}
@@ -353,7 +348,7 @@ export function CommandCenterPage() {
             <StatTile label="Cancellations" value={fmtPct(cur.cancel_rate)} tone={toneCancel(cur.cancel_rate)} />
             <StatTile label="Avg Wait" value={`${cur.avg_wait_min.toFixed(1)} min`} tone={toneWait(cur.avg_wait_min)} />
             <StatTile label="Trips This Hour" value={cur.trips.toLocaleString()} tone="ok" hint={`${cur.completed.toLocaleString()} completed`} />
-            <StatTile label="Fleet At Risk" value={`${critVehicles.length}`} tone={critVehicles.length ? 'crit' : 'ok'} hint="≥85% service risk / 7d" />
+            <StatTile label="Fleet At Risk" value={`${fleetTotal}`} tone={fleetTotal ? 'crit' : 'ok'} hint="≥50% service risk / 7d" />
           </>
         )}
       </div>
@@ -423,7 +418,7 @@ export function CommandCenterPage() {
                   </div>
                   {selZone && (
                     <div className="text-xs text-foreground/80">
-                      <span className="font-semibold">{selZone.area_name}</span> ({selZone.zone_type}) · demand {selZone.demand} · no-driver {fmtPct(selZone.no_driver_rate)} · surge {selZone.avg_surge}×
+                      <span className="font-semibold">{selZone.area_name}</span> ({selZone.zone_type}) · demand {N(selZone.demand)} · no-driver {fmtPct(N(selZone.no_driver_rate))} · surge {N(selZone.avg_surge)}×
                     </div>
                   )}
                 </div>
