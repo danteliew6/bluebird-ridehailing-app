@@ -318,7 +318,7 @@ export function CommandCenterPage() {
           <Button variant={playing ? 'secondary' : 'default'} size="sm" onClick={() => setPlaying((p) => !p)} className="gap-1">
             {playing ? <><Pause className="h-3.5 w-3.5" /> Live</> : <><Play className="h-3.5 w-3.5" /> Paused</>}
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => { setSimHour(18); }}>Jump to peak</Button>
+          <Button variant="ghost" size="sm" onClick={() => { setSimHour(18); setPlaying(false); }}>Jump to peak</Button>
         </div>
       </div>
 
