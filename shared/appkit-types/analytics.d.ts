@@ -77,6 +77,59 @@ declare module "@databricks/appkit-ui/react" {
           trips: number;
         }>;
       };
+    persona_drivers: {
+        name: "persona_drivers";
+        parameters: {
+          /** STRING - use sql.string() */
+          persona: SQLStringMarker;
+        };
+        result: Array<{
+          /** @sqlType STRING */
+          driver_id: string;
+          /** @sqlType STRING */
+          driver_name: string;
+          /** @sqlType STRING */
+          phone: string;
+          /** @sqlType STRING */
+          nik: string;
+          /** @sqlType STRING */
+          home_city: string;
+          /** @sqlType STRING */
+          fleet_brand: string;
+        }>;
+      };
+    persona_summary: {
+        name: "persona_summary";
+        parameters: {
+          /** STRING - use sql.string() */
+          persona: SQLStringMarker;
+        };
+        result: Array<{
+          /** @sqlType BOOLEAN */
+          pii_visible: boolean;
+          /** @sqlType STRING */
+          allowed_city: string;
+          /** @sqlType BIGINT */
+          visible_trips: number;
+          /** @sqlType BIGINT */
+          visible_cities: number;
+        }>;
+      };
+    persona_trips_by_city: {
+        name: "persona_trips_by_city";
+        parameters: {
+          /** STRING - use sql.string() */
+          persona: SQLStringMarker;
+        };
+        result: Array<{
+          /** @sqlType STRING */
+          city: string;
+          /** @sqlType BIGINT */
+          trips: number;
+          /** @sqlType DOUBLE */
+          revenue_bn_idr: number;
+        }>;
+      };
     revenue_by_day: {
         name: "revenue_by_day";
         parameters: Record<string, never>;
@@ -133,6 +186,8 @@ declare module "@databricks/appkit-ui/react" {
           vehicle_id: string;
           /** @sqlType STRING */
           fleet_brand: string;
+          /** @sqlType BIGINT */
+          risk_pct: number;
           /** @sqlType DOUBLE */
           anomaly_score: number;
           /** @sqlType DOUBLE */
@@ -143,6 +198,16 @@ declare module "@databricks/appkit-ui/react" {
           km_since_service: number;
           /** 1 if the vehicle needs maintenance now (ML target) */
           needs_service_now: number;
+        }>;
+      };
+    whoami: {
+        name: "whoami";
+        parameters: Record<string, never>;
+        result: Array<{
+          /** @sqlType STRING */
+          identity: string;
+          /** @sqlType BOOLEAN */
+          is_ws_admin: boolean;
         }>;
       };
   }

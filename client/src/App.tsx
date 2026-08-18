@@ -10,8 +10,11 @@ import {
 } from '@databricks/appkit-ui/react';
 import { Menu } from 'lucide-react';
 import { OverviewPage } from './pages/overview/OverviewPage';
+import { AiBiDashboardPage } from './pages/dashboard/AiBiDashboardPage';
 import { AskBluebirdPage } from './pages/genie/AskBluebirdPage';
 import { FleetForecastPage } from './pages/serving/FleetForecastPage';
+import { DataAccessPage } from './pages/governance/DataAccessPage';
+import { ArchitecturePage } from './pages/architecture/ArchitecturePage';
 
 function BluebirdMark() {
   return (
@@ -46,8 +49,11 @@ type NavLinkClassFn = (props: { isActive: boolean }) => string;
 
 const LINKS = [
   { to: '/overview', label: 'Operations' },
+  { to: '/dashboard', label: 'AI/BI Dashboard' },
   { to: '/ask', label: 'Ask Bluebird' },
   { to: '/fleet', label: 'Fleet & Forecast' },
+  { to: '/access', label: 'Data Access' },
+  { to: '/architecture', label: 'Architecture' },
 ];
 
 function NavLinks({ className, linkClass, onClick }: { className?: string; linkClass: NavLinkClassFn; onClick?: () => void }) {
@@ -102,8 +108,11 @@ const router = createBrowserRouter([
     children: [
       { path: '/', element: <Navigate to="/overview" replace /> },
       { path: '/overview', element: <OverviewPage /> },
+      { path: '/dashboard', element: <AiBiDashboardPage /> },
       { path: '/ask', element: <AskBluebirdPage /> },
       { path: '/fleet', element: <FleetForecastPage /> },
+      { path: '/access', element: <DataAccessPage /> },
+      { path: '/architecture', element: <ArchitecturePage /> },
     ],
   },
 ]);
