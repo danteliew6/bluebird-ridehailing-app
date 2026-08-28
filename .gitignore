@@ -11,3 +11,9 @@ playwright-report/
 
 # Auto-generated types (endpoint-specific, varies per developer)
 shared/appkit-types/serving.d.ts
+
+# Python data-journey artifacts
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/

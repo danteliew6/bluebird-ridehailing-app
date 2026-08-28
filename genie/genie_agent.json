@@ -1,0 +1,85 @@
+{
+  "version": 2,
+  "config": {
+    "sample_questions": [
+      {"id": "10000000000000000000000000000001", "question": ["What was total revenue and completed trips by city over the last 30 days?"]},
+      {"id": "10000000000000000000000000000002", "question": ["Which fleet brand has the highest cancellation rate?"]},
+      {"id": "10000000000000000000000000000003", "question": ["Show the cancellation and no-driver rate for Jakarta evening peak (5pm-8pm) over the last 30 days"]},
+      {"id": "10000000000000000000000000000004", "question": ["What are the top 10 pickup zones by number of trips in Jakarta?"]},
+      {"id": "10000000000000000000000000000005", "question": ["Berapa rata-rata tarif dan jumlah perjalanan per kota bulan ini?"]},
+      {"id": "10000000000000000000000000000006", "question": ["How many vehicles currently need service, broken down by fleet brand?"]},
+      {"id": "10000000000000000000000000000007", "question": ["What is the average surge multiplier by hour of day in Jakarta?"]}
+    ]
+  },
+  "data_sources": {
+    "tables": [
+      {"identifier": "dante_classic_stable_catalog.bluebird_ride_hailing.dim_zone"},
+      {"identifier": "dante_classic_stable_catalog.bluebird_ride_hailing.fact_trip"},
+      {"identifier": "dante_classic_stable_catalog.bluebird_ride_hailing.fact_vehicle_health"}
+    ]
+  },
+  "instructions": {
+    "example_question_sqls": [
+      {
+        "id": "20000000000000000000000000000001",
+        "question": ["Revenue and completed trips by city over the last 30 days"],
+        "sql": [
+          "SELECT city,\n",
+          "       COUNT(*) FILTER (WHERE status = 'completed') AS completed_trips,\n",
+          "       SUM(fare_idr) AS revenue_idr\n",
+          "FROM dante_classic_stable_catalog.bluebird_ride_hailing.fact_trip\n",
+          "WHERE to_date(request_ts) >= date_sub(current_date(), 30)\n",
+          "GROUP BY city ORDER BY revenue_idr DESC"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000002",
+        "question": ["Cancellation and no-driver rate for Jakarta evening peak over the last 30 days"],
+        "sql": [
+          "SELECT ROUND(100 * AVG(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END), 1) AS cancel_pct,\n",
+          "       ROUND(100 * AVG(CASE WHEN status = 'no_driver' THEN 1 ELSE 0 END), 1) AS no_driver_pct,\n",
+          "       ROUND(AVG(surge_multiplier), 2) AS avg_surge\n",
+          "FROM dante_classic_stable_catalog.bluebird_ride_hailing.fact_trip\n",
+          "WHERE city = 'Jakarta' AND hour(request_ts) BETWEEN 17 AND 20\n",
+          "  AND to_date(request_ts) >= date_sub(current_date(), 30)"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000003",
+        "question": ["Top pickup zones by trips in Jakarta"],
+        "sql": [
+          "SELECT z.area_name, z.zone_type, COUNT(*) AS trips\n",
+          "FROM dante_classic_stable_catalog.bluebird_ride_hailing.fact_trip t\n",
+          "JOIN dante_classic_stable_catalog.bluebird_ride_hailing.dim_zone z ON t.pickup_zone_id = z.zone_id\n",
+          "WHERE t.city = 'Jakarta'\n",
+          "GROUP BY z.area_name, z.zone_type ORDER BY trips DESC LIMIT 10"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000004",
+        "question": ["Vehicles needing service by fleet brand"],
+        "sql": [
+          "SELECT fleet_brand, COUNT(DISTINCT vehicle_id) AS vehicles_needing_service\n",
+          "FROM dante_classic_stable_catalog.bluebird_ride_hailing.fact_vehicle_health\n",
+          "WHERE reading_date = (SELECT MAX(reading_date) FROM dante_classic_stable_catalog.bluebird_ride_hailing.fact_vehicle_health)\n",
+          "  AND needs_service_flag = 1\n",
+          "GROUP BY fleet_brand ORDER BY vehicles_needing_service DESC"
+        ]
+      }
+    ],
+    "text_instructions": [
+      {
+        "id": "30000000000000000000000000000001",
+        "content": [
+          "You are the Bluebird ride-hailing data assistant for Indonesia. Answer in the language the user asks in (English or Bahasa Indonesia).\n",
+          "TABLES: fact_trip is the main table (one row per ride request) with columns city, fleet_brand, service_type, payment_method, status, request_ts, fare_idr, surge_multiplier, distance_km, wait_time_min, rating, pickup_zone_id, dropoff_zone_id. dim_zone maps zone_id -> area_name, zone_type, city (join fact_trip.pickup_zone_id or dropoff_zone_id to dim_zone.zone_id). fact_vehicle_health has daily telematics per vehicle with anomaly_score, needs_service_flag, brake_wear_pct, battery_v.\n",
+          "BUSINESS DEFINITIONS: fare_idr is in Indonesian Rupiah; only completed trips carry a fare (cancelled/no_driver have fare 0). status values are exactly 'completed', 'cancelled', 'no_driver'. 'no_driver' means no driver was matched to the request. Fleet brands are 'Bluebird' (regular), 'Silver Bird' (premium), 'Golden Bird' (limo), 'Big Bird' (charter). Cities are Jakarta, Surabaya, Bandung, Denpasar, Medan.\n",
+          "METRICS: cancellation rate = cancelled trips / all trips; no-driver rate = no_driver / all trips; completion rate = completed / all trips. Revenue = SUM(fare_idr). Morning peak is 6-9h, evening peak is 17-20h.\n",
+          "CONTEXT: Jakarta evening peak (17-20h) in the most recent 30 days has an elevated cancellation + no-driver rate and higher surge due to a driver shortage — this is the key operational issue to surface.\n",
+          "MAINTENANCE: a vehicle needs service when needs_service_flag = 1; anomaly_score >= 0.7 is actionable. For 'currently needs service' use the latest reading_date. Older Golden Bird and Big Bird vehicles degrade fastest.\n",
+          "STYLE: default to the last 30 days when the user says 'recent' or does not specify a period. Prefer clear aggregates and always label revenue as IDR."
+        ]
+      }
+    ]
+  }
+}

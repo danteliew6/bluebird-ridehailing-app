@@ -1,0 +1,245 @@
+{
+  "datasets": [
+    {
+      "name": "ds_trips",
+      "displayName": "Trips",
+      "queryLines": [
+        "SELECT to_date(t.request_ts) AS trip_date, hour(t.request_ts) AS trip_hour, ",
+        "       t.city AS city, t.fleet_brand AS fleet_brand, t.service_type AS service_type, ",
+        "       t.payment_method AS payment_method, t.status AS status, ",
+        "       t.fare_idr AS fare_idr, t.surge_multiplier AS surge_multiplier, ",
+        "       t.distance_km AS distance_km, t.wait_time_min AS wait_time_min, t.rating AS rating, ",
+        "       z.area_name AS pickup_area, z.zone_type AS pickup_zone_type ",
+        "FROM fact_trip t ",
+        "LEFT JOIN dim_zone z ON t.pickup_zone_id = z.zone_id"
+      ],
+      "columns": [
+        {"displayName": "Total Trips", "description": "Count of trip requests", "expression": "COUNT(1)"},
+        {"displayName": "Completed Trips", "description": "Completed trips", "expression": "SUM(CASE WHEN `status`='completed' THEN 1 ELSE 0 END)"},
+        {"displayName": "Revenue Bn IDR", "description": "Total fare revenue in billions of IDR", "expression": "SUM(`fare_idr`)/1000000000.0"},
+        {"displayName": "Cancellation Rate", "description": "Cancelled / all trips", "expression": "SUM(CASE WHEN `status`='cancelled' THEN 1 ELSE 0 END)*1.0/COUNT(1)"},
+        {"displayName": "No Driver Rate", "description": "No-driver / all trips", "expression": "SUM(CASE WHEN `status`='no_driver' THEN 1 ELSE 0 END)*1.0/COUNT(1)"},
+        {"displayName": "Avg Surge", "description": "Average surge multiplier", "expression": "AVG(`surge_multiplier`)"},
+        {"displayName": "Avg Wait Min", "description": "Average wait time (minutes)", "expression": "AVG(`wait_time_min`)"},
+        {"displayName": "Avg Rating", "description": "Average completed-trip rating", "expression": "AVG(`rating`)"}
+      ]
+    },
+    {
+      "name": "ds_fleet",
+      "displayName": "Fleet health",
+      "queryLines": [
+        "SELECT to_date(reading_date) AS reading_date, fleet_brand, vehicle_id, ",
+        "       anomaly_score, needs_service_flag, brake_wear_pct, battery_v ",
+        "FROM fact_vehicle_health"
+      ],
+      "columns": [
+        {"displayName": "Avg Anomaly", "description": "Average anomaly score (0-1)", "expression": "AVG(`anomaly_score`)"},
+        {"displayName": "Service Needed Rate", "description": "Share of readings needing service", "expression": "AVG(`needs_service_flag`)"},
+        {"displayName": "Avg Brake Wear", "description": "Average brake wear percent", "expression": "AVG(`brake_wear_pct`)"},
+        {"displayName": "Readings", "description": "Telematics readings", "expression": "COUNT(1)"}
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "operations",
+      "displayName": "Operations",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "ops_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# 🚕 Bluebird Operations — Indonesia\n",
+                "Revenue, demand and service reliability across Jakarta, Surabaya, Bandung, Denpasar and Medan. **Watch the evening peak in Jakarta** — a recent driver shortage is driving up cancellations, no-driver events and surge. Use the Filters page to slice by date and city."
+              ]
+            }
+          },
+          "position": {"x": 0, "y": 0, "width": 12, "height": 2}
+        },
+        {
+          "widget": {
+            "name": "kpi_revenue",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_trips", "fields": [{"name": "measure(Revenue Bn IDR)", "expression": "MEASURE(`Revenue Bn IDR`)"}], "disaggregated": false}}],
+            "spec": {"version": 2, "widgetType": "counter", "encodings": {"value": {"fieldName": "measure(Revenue Bn IDR)", "displayName": "Revenue (Bn IDR)", "format": {"type": "number", "decimalPlaces": {"type": "exact", "places": 2}}}}, "frame": {"title": "Total Revenue (Bn IDR)", "showTitle": true}}
+          },
+          "position": {"x": 0, "y": 2, "width": 3, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "kpi_completed",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_trips", "fields": [{"name": "measure(Completed Trips)", "expression": "MEASURE(`Completed Trips`)"}], "disaggregated": false}}],
+            "spec": {"version": 2, "widgetType": "counter", "encodings": {"value": {"fieldName": "measure(Completed Trips)", "displayName": "Completed Trips"}}, "frame": {"title": "Completed Trips", "showTitle": true}}
+          },
+          "position": {"x": 3, "y": 2, "width": 3, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "kpi_cancel",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_trips", "fields": [{"name": "measure(Cancellation Rate)", "expression": "MEASURE(`Cancellation Rate`)"}], "disaggregated": false}}],
+            "spec": {"version": 2, "widgetType": "counter", "encodings": {"value": {"fieldName": "measure(Cancellation Rate)", "displayName": "Cancellation Rate", "format": {"type": "number-percent", "decimalPlaces": {"type": "max", "places": 1}}}}, "frame": {"title": "Cancellation Rate", "showTitle": true}}
+          },
+          "position": {"x": 6, "y": 2, "width": 3, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "kpi_surge",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_trips", "fields": [{"name": "measure(Avg Surge)", "expression": "MEASURE(`Avg Surge`)"}], "disaggregated": false}}],
+            "spec": {"version": 2, "widgetType": "counter", "encodings": {"value": {"fieldName": "measure(Avg Surge)", "displayName": "Avg Surge", "format": {"type": "number", "decimalPlaces": {"type": "exact", "places": 2}}}}, "frame": {"title": "Avg Surge Multiplier", "showTitle": true}}
+          },
+          "position": {"x": 9, "y": 2, "width": 3, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "revenue_trend",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_trips", "fields": [{"name": "daily(trip_date)", "expression": "DATE_TRUNC(\"DAY\", `trip_date`)"}, {"name": "measure(Revenue Bn IDR)", "expression": "MEASURE(`Revenue Bn IDR`)"}], "disaggregated": false}}],
+            "spec": {"version": 3, "widgetType": "line", "frame": {"title": "Daily Revenue (Bn IDR)", "showTitle": true}, "encodings": {"x": {"fieldName": "daily(trip_date)", "scale": {"type": "temporal"}, "displayName": "Date"}, "y": {"fieldName": "measure(Revenue Bn IDR)", "scale": {"type": "quantitative"}, "displayName": "Revenue (Bn IDR)"}}}
+          },
+          "position": {"x": 0, "y": 5, "width": 6, "height": 5}
+        },
+        {
+          "widget": {
+            "name": "trips_by_city",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_trips", "fields": [{"name": "city", "expression": "`city`"}, {"name": "measure(Total Trips)", "expression": "MEASURE(`Total Trips`)"}], "disaggregated": false}}],
+            "spec": {"version": 3, "widgetType": "bar", "frame": {"title": "Trips by City", "showTitle": true}, "encodings": {"x": {"fieldName": "city", "scale": {"type": "categorical"}, "displayName": "City"}, "y": {"fieldName": "measure(Total Trips)", "scale": {"type": "quantitative"}, "displayName": "Trips"}, "color": {"fieldName": "city", "scale": {"type": "categorical"}, "displayName": "City"}}}
+          },
+          "position": {"x": 6, "y": 5, "width": 6, "height": 5}
+        },
+        {
+          "widget": {
+            "name": "reliability_by_hour",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_trips", "fields": [{"name": "trip_hour", "expression": "`trip_hour`"}, {"name": "measure(No Driver Rate)", "expression": "MEASURE(`No Driver Rate`)"}, {"name": "city", "expression": "`city`"}], "disaggregated": false}}],
+            "spec": {"version": 3, "widgetType": "line", "frame": {"title": "No-Driver Rate by Hour of Day", "showTitle": true}, "encodings": {"x": {"fieldName": "trip_hour", "scale": {"type": "quantitative"}, "displayName": "Hour of Day"}, "y": {"fieldName": "measure(No Driver Rate)", "scale": {"type": "quantitative"}, "displayName": "No-Driver Rate"}, "color": {"fieldName": "city", "scale": {"type": "categorical"}, "displayName": "City"}}}
+          },
+          "position": {"x": 0, "y": 10, "width": 6, "height": 5}
+        },
+        {
+          "widget": {
+            "name": "status_mix",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_trips", "fields": [{"name": "measure(Total Trips)", "expression": "MEASURE(`Total Trips`)"}, {"name": "status", "expression": "`status`"}], "disaggregated": false}}],
+            "spec": {"version": 3, "widgetType": "pie", "frame": {"title": "Trip Outcome Mix", "showTitle": true}, "encodings": {"angle": {"fieldName": "measure(Total Trips)", "scale": {"type": "quantitative"}, "displayName": "Trips"}, "color": {"fieldName": "status", "scale": {"type": "categorical", "mappings": [{"value": "completed", "color": "#3FA7D6"}, {"value": "cancelled", "color": "#F2B705"}, {"value": "no_driver", "color": "#FF7E5C"}]}, "displayName": "Status"}, "label": {"show": true}}}
+          },
+          "position": {"x": 6, "y": 10, "width": 6, "height": 5}
+        },
+        {
+          "widget": {
+            "name": "top_zones",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_trips", "fields": [{"name": "pickup_area", "expression": "`pickup_area`"}, {"name": "pickup_zone_type", "expression": "`pickup_zone_type`"}, {"name": "measure(Total Trips)", "expression": "MEASURE(`Total Trips`)"}, {"name": "measure(Revenue Bn IDR)", "expression": "MEASURE(`Revenue Bn IDR`)"}, {"name": "measure(Avg Surge)", "expression": "MEASURE(`Avg Surge`)"}], "disaggregated": false}}],
+            "spec": {"version": 2, "widgetType": "table", "frame": {"title": "Top Pickup Zones", "showTitle": true}, "encodings": {"columns": [{"fieldName": "pickup_area", "displayName": "Pickup Zone"}, {"fieldName": "pickup_zone_type", "displayName": "Type"}, {"fieldName": "measure(Total Trips)", "displayName": "Trips"}, {"fieldName": "measure(Revenue Bn IDR)", "displayName": "Revenue (Bn IDR)", "format": {"type": "number", "decimalPlaces": {"type": "exact", "places": 3}}}, {"fieldName": "measure(Avg Surge)", "displayName": "Avg Surge", "format": {"type": "number", "decimalPlaces": {"type": "exact", "places": 2}}}]}}
+          },
+          "position": {"x": 0, "y": 15, "width": 12, "height": 6}
+        }
+      ]
+    },
+    {
+      "name": "fleet_health",
+      "displayName": "Fleet Health",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "fleet_header",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# 🔧 Fleet Health & Predictive Maintenance\n",
+                "Daily vehicle telematics across the fleet. Anomaly score ≥ 0.7 is actionable. **Older Golden Bird and Big Bird vehicles are degrading fastest** — the trend line shows anomaly scores climbing over the last 90 days."
+              ]
+            }
+          },
+          "position": {"x": 0, "y": 0, "width": 12, "height": 2}
+        },
+        {
+          "widget": {
+            "name": "kpi_svc_rate",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_fleet", "fields": [{"name": "measure(Service Needed Rate)", "expression": "MEASURE(`Service Needed Rate`)"}], "disaggregated": false}}],
+            "spec": {"version": 2, "widgetType": "counter", "encodings": {"value": {"fieldName": "measure(Service Needed Rate)", "displayName": "Service Needed Rate", "format": {"type": "number-percent", "decimalPlaces": {"type": "max", "places": 1}}}}, "frame": {"title": "Readings Needing Service", "showTitle": true}}
+          },
+          "position": {"x": 0, "y": 2, "width": 4, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "kpi_anom",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_fleet", "fields": [{"name": "measure(Avg Anomaly)", "expression": "MEASURE(`Avg Anomaly`)"}], "disaggregated": false}}],
+            "spec": {"version": 2, "widgetType": "counter", "encodings": {"value": {"fieldName": "measure(Avg Anomaly)", "displayName": "Avg Anomaly", "format": {"type": "number", "decimalPlaces": {"type": "exact", "places": 3}}}}, "frame": {"title": "Avg Anomaly Score", "showTitle": true}}
+          },
+          "position": {"x": 4, "y": 2, "width": 4, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "kpi_brake",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_fleet", "fields": [{"name": "measure(Avg Brake Wear)", "expression": "MEASURE(`Avg Brake Wear`)"}], "disaggregated": false}}],
+            "spec": {"version": 2, "widgetType": "counter", "encodings": {"value": {"fieldName": "measure(Avg Brake Wear)", "displayName": "Avg Brake Wear %", "format": {"type": "number", "decimalPlaces": {"type": "exact", "places": 1}}}}, "frame": {"title": "Avg Brake Wear (%)", "showTitle": true}}
+          },
+          "position": {"x": 8, "y": 2, "width": 4, "height": 3}
+        },
+        {
+          "widget": {
+            "name": "anomaly_trend",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_fleet", "fields": [{"name": "daily(reading_date)", "expression": "DATE_TRUNC(\"DAY\", `reading_date`)"}, {"name": "measure(Avg Anomaly)", "expression": "MEASURE(`Avg Anomaly`)"}, {"name": "fleet_brand", "expression": "`fleet_brand`"}], "disaggregated": false}}],
+            "spec": {"version": 3, "widgetType": "line", "frame": {"title": "Anomaly Score Trend by Fleet Brand", "showTitle": true}, "encodings": {"x": {"fieldName": "daily(reading_date)", "scale": {"type": "temporal"}, "displayName": "Date"}, "y": {"fieldName": "measure(Avg Anomaly)", "scale": {"type": "quantitative"}, "displayName": "Avg Anomaly"}, "color": {"fieldName": "fleet_brand", "scale": {"type": "categorical"}, "displayName": "Fleet Brand"}}}
+          },
+          "position": {"x": 0, "y": 5, "width": 12, "height": 5}
+        },
+        {
+          "widget": {
+            "name": "anom_by_brand",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_fleet", "fields": [{"name": "fleet_brand", "expression": "`fleet_brand`"}, {"name": "measure(Avg Anomaly)", "expression": "MEASURE(`Avg Anomaly`)"}], "disaggregated": false}}],
+            "spec": {"version": 3, "widgetType": "bar", "frame": {"title": "Avg Anomaly by Fleet Brand", "showTitle": true}, "encodings": {"x": {"fieldName": "fleet_brand", "scale": {"type": "categorical"}, "displayName": "Fleet Brand"}, "y": {"fieldName": "measure(Avg Anomaly)", "scale": {"type": "quantitative"}, "displayName": "Avg Anomaly"}, "color": {"fieldName": "fleet_brand", "scale": {"type": "categorical"}, "displayName": "Fleet Brand"}}}
+          },
+          "position": {"x": 0, "y": 10, "width": 6, "height": 5}
+        },
+        {
+          "widget": {
+            "name": "svc_by_brand",
+            "queries": [{"name": "main_query", "query": {"datasetName": "ds_fleet", "fields": [{"name": "fleet_brand", "expression": "`fleet_brand`"}, {"name": "measure(Service Needed Rate)", "expression": "MEASURE(`Service Needed Rate`)"}], "disaggregated": false}}],
+            "spec": {"version": 3, "widgetType": "bar", "frame": {"title": "Service-Needed Rate by Fleet Brand", "showTitle": true}, "encodings": {"x": {"fieldName": "fleet_brand", "scale": {"type": "categorical"}, "displayName": "Fleet Brand"}, "y": {"fieldName": "measure(Service Needed Rate)", "scale": {"type": "quantitative"}, "displayName": "Service Needed Rate"}, "color": {"fieldName": "fleet_brand", "scale": {"type": "categorical"}, "displayName": "Fleet Brand"}}}
+          },
+          "position": {"x": 6, "y": 10, "width": 6, "height": 5}
+        }
+      ]
+    },
+    {
+      "name": "filters",
+      "displayName": "Filters",
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layoutVersion": "GRID_V1",
+      "layout": [
+        {
+          "widget": {
+            "name": "filter_date",
+            "queries": [{"name": "ds_date", "query": {"datasetName": "ds_trips", "fields": [{"name": "trip_date", "expression": "`trip_date`"}], "disaggregated": false}}],
+            "spec": {"version": 2, "widgetType": "filter-date-range-picker", "encodings": {"fields": [{"fieldName": "trip_date", "queryName": "ds_date"}]}, "frame": {"title": "Trip Date", "showTitle": true}}
+          },
+          "position": {"x": 0, "y": 0, "width": 6, "height": 2}
+        },
+        {
+          "widget": {
+            "name": "filter_city",
+            "queries": [{"name": "ds_city", "query": {"datasetName": "ds_trips", "fields": [{"name": "city", "expression": "`city`"}], "disaggregated": false}}],
+            "spec": {"version": 2, "widgetType": "filter-multi-select", "encodings": {"fields": [{"fieldName": "city", "queryName": "ds_city", "displayName": "City"}]}, "frame": {"title": "City", "showTitle": true}}
+          },
+          "position": {"x": 6, "y": 0, "width": 6, "height": 2}
+        }
+      ]
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {"light": "#FCFCFC", "dark": "#12202E"},
+      "widgetBackgroundColor": {"light": "#FFFFFF", "dark": "#0C1826"},
+      "widgetBorderColor": {"light": "#FFFFFF", "dark": "#0C1826"},
+      "fontColor": {"light": "#0C1826", "dark": "#E8ECF0"},
+      "selectionColor": {"light": "#1D6FB8", "dark": "#5ADBFF"},
+      "visualizationColors": ["#0B3C8A", "#1D6FB8", "#3FA7D6", "#F2B705", "#EF7D00", "#8E5AA6", "#59A14F"],
+      "widgetHeaderAlignment": "LEFT"
+    },
+    "genieSpace": {
+      "isEnabled": true,
+      "overrideId": "01f19a33de0a1111ab1e0302d7c0b8c7",
+      "enablementMode": "ENABLED"
+    }
+  }
+}
