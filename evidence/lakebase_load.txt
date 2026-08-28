@@ -1,0 +1,11 @@
+== Resolving Lakebase endpoint + short-lived credential ==
+   host=ep-lucky-king-d2ewxj61.database.us-east-1.cloud.databricks.com
+== Creating Postgres tables + indexes ==
+== gold_vehicle_predictions: export from Delta -> load into Postgres ==
+   delta_rows=700  postgres_rows=700
+== gold_zone_live: export from Delta -> load into Postgres ==
+   delta_rows=875  postgres_rows=875
+== gold_city_hourly: export from Delta -> load into Postgres ==
+   delta_rows=120  postgres_rows=120
+== Granting SELECT to the app service principal ==
+ERROR:  role "71835aab-957e-4abf-b266-d2595f1d10a0" does not exist
