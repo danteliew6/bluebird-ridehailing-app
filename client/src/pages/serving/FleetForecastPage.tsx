@@ -3,7 +3,6 @@ import {
   useServingInvoke,
   LineChart,
   BarChart,
-  DataTable,
   Card,
   CardContent,
   CardHeader,
@@ -15,7 +14,8 @@ import {
   Input,
 } from '@databricks/appkit-ui/react';
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Database } from 'lucide-react';
 
 function Kpi({ label, value, hint }: { label: string; value: ReactNode; hint?: string }) {
   return (
@@ -135,6 +135,102 @@ function WhatIf() {
   );
 }
 
+interface WorklistRow {
+  vehicle_id: string;
+  fleet_brand: string;
+  risk_pct: number;
+  anomaly_score: number;
+  brake_wear_pct: number;
+  battery_v: number;
+  km_since_service: number;
+  needs_service_now: number;
+}
+
+// Fleet service worklist — read at OLTP latency from Lakebase Postgres
+// (public.gold_vehicle_predictions, loaded from the Delta gold layer).
+function LakebaseWorklist() {
+  const [rows, setRows] = useState<WorklistRow[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [q, setQ] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/lakebase/vehicle-worklist')
+      .then((r) => r.json())
+      .then((d) => { if (alive) Array.isArray(d) ? setRows(d as WorklistRow[]) : setErr('No data'); })
+      .catch((e) => { if (alive) setErr(String(e)); });
+    return () => { alive = false; };
+  }, []);
+
+  const filtered = useMemo(
+    () => (rows ?? []).filter((r) => r.vehicle_id.toLowerCase().includes(q.toLowerCase())),
+    [rows, q],
+  );
+
+  return (
+    <Card className="shadow-sm lg:col-span-2">
+      <CardHeader>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle>Vehicles Predicted to Need Service (7d)</CardTitle>
+          <Badge variant="secondary" className="gap-1 shrink-0">
+            <Database className="h-3 w-3" /> Served from Lakebase
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {err && <div className="text-destructive text-sm">Error: {err}</div>}
+        {!rows && !err && <Skeleton className="h-64 w-full" />}
+        {rows && (
+          <>
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Filter vehicle…"
+              className="mb-3 max-w-xs"
+            />
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                    <th className="py-2 pr-3">Vehicle</th>
+                    <th className="py-2 pr-3">Brand</th>
+                    <th className="py-2 pr-3">7d Risk</th>
+                    <th className="py-2 pr-3">Anomaly</th>
+                    <th className="py-2 pr-3">Brake %</th>
+                    <th className="py-2 pr-3">Battery V</th>
+                    <th className="py-2 pr-3">Km/Svc</th>
+                    <th className="py-2">Now?</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.slice(0, 12).map((r) => {
+                    const sev = severity(Number(r.risk_pct) / 100);
+                    return (
+                      <tr key={r.vehicle_id} className="border-b border-border/50">
+                        <td className="py-1.5 pr-3 font-mono text-xs">{r.vehicle_id}</td>
+                        <td className="py-1.5 pr-3">{r.fleet_brand}</td>
+                        <td className={`py-1.5 pr-3 font-semibold ${sev.text}`}>{Number(r.risk_pct)}%</td>
+                        <td className="py-1.5 pr-3">{Number(r.anomaly_score).toFixed(2)}</td>
+                        <td className="py-1.5 pr-3">{Number(r.brake_wear_pct).toFixed(0)}</td>
+                        <td className="py-1.5 pr-3">{Number(r.battery_v).toFixed(1)}</td>
+                        <td className="py-1.5 pr-3">{Number(r.km_since_service).toLocaleString()}</td>
+                        <td className="py-1.5">{Number(r.needs_service_now) === 1 ? '⚠️' : '—'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-2 text-xs text-muted-foreground">
+              {filtered.length} vehicles at ≥50% risk · low-latency read from Lakebase Postgres
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function FleetForecastPage() {
   const { data, loading, error } = useAnalyticsQuery('kpi_fleet', {});
   const k = data?.[0];
@@ -184,12 +280,7 @@ export function FleetForecastPage() {
             <BarChart queryKey="risk_by_brand" parameters={{}} xKey="fleet_brand" yKey="at_risk_7d" height={300} orientation="horizontal" />
           </CardContent>
         </Card>
-        <Card className="shadow-sm lg:col-span-2">
-          <CardHeader><CardTitle>Vehicles Predicted to Need Service (7d)</CardTitle></CardHeader>
-          <CardContent>
-            <DataTable queryKey="vehicles_at_risk" parameters={{}} filterColumn="vehicle_id" filterPlaceholder="Filter vehicle…" pageSize={8} />
-          </CardContent>
-        </Card>
+        <LakebaseWorklist />
       </div>
 
       <WhatIf />

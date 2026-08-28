@@ -38,14 +38,25 @@ interface BrandRiskRow { fleet_brand: string; at_risk_7d: number }
 // Each feeder pushes its latest result up to the page; the page keeps the previous
 // data in state meanwhile, so refreshes never flash a skeleton.
 // ---------------------------------------------------------------------------
+// City-hourly and zone-live are served from Lakebase Postgres (the curated gold
+// layer is loaded into Lakebase — see lakebase/load_serving_tables.sh). Fetching
+// on mount preserves the remount-by-`key` polling used elsewhere on this page.
+function useLakebaseFeed<T>(url: string, onData: (d: T[]) => void) {
+  useEffect(() => {
+    let alive = true;
+    fetch(url)
+      .then((r) => r.json())
+      .then((d) => { if (alive && Array.isArray(d)) onData(d as T[]); })
+      .catch(() => { /* keep previous data on transient error */ });
+    return () => { alive = false; };
+  }, [url, onData]);
+}
 function HourlyFeeder({ onData }: { onData: (d: HourlyCityRow[]) => void }) {
-  const { data } = useAnalyticsQuery('cc_hourly_city', {});
-  useEffect(() => { if (data) onData(data as HourlyCityRow[]); }, [data, onData]);
+  useLakebaseFeed<HourlyCityRow>('/api/lakebase/city-hourly', onData);
   return null;
 }
 function ZoneFeeder({ onData }: { onData: (d: ZoneRow[]) => void }) {
-  const { data } = useAnalyticsQuery('cc_zone_live', {});
-  useEffect(() => { if (data) onData(data as ZoneRow[]); }, [data, onData]);
+  useLakebaseFeed<ZoneRow>('/api/lakebase/zone-live', onData);
   return null;
 }
 function BrandFeeder({ onData }: { onData: (d: BrandRiskRow[]) => void }) {

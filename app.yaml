@@ -6,3 +6,5 @@ env:
     valueFrom: genie-space
   - name: DATABRICKS_SERVING_ENDPOINT_NAME
     valueFrom: serving-endpoint
+  - name: LAKEBASE_ENDPOINT
+    valueFrom: postgres

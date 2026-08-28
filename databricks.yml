@@ -10,6 +10,10 @@ variables:
     description: Genie Space display name
   serving_endpoint_name:
     description: Serving endpoint name
+  lakebase_branch:
+    description: Lakebase branch resource name
+  lakebase_database:
+    description: Lakebase database resource name
 
 resources:
   apps:
@@ -39,6 +43,11 @@ resources:
           serving_endpoint:
             name: ${var.serving_endpoint_name}
             permission: CAN_QUERY
+        - name: postgres
+          postgres:
+            branch: ${var.lakebase_branch}
+            database: ${var.lakebase_database}
+            permission: CAN_CONNECT_AND_CREATE
 
 targets:
   default:
@@ -51,3 +60,5 @@ targets:
       genie_space_id: 01f19a33de0a1111ab1e0302d7c0b8c7
       genie_space_name: bluebird_data
       serving_endpoint_name: bluebird-maintenance
+      lakebase_branch: projects/bluebird-ops-db/branches/production
+      lakebase_database: projects/bluebird-ops-db/branches/production/databases/databricks-postgres
