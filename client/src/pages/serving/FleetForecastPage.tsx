@@ -146,12 +146,38 @@ interface WorklistRow {
   needs_service_now: number;
 }
 
-// Fleet service worklist — read at OLTP latency from Lakebase Postgres
-// (public.gold_vehicle_predictions, loaded from the Delta gold layer).
+interface ServiceOrder {
+  id: string;
+  vehicle_id: string;
+  fleet_brand: string | null;
+  risk_pct: number | null;
+  action: string;
+  note: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+const ACTION_LABEL: Record<string, string> = {
+  schedule_service: 'Service scheduled',
+  dispatch_inspection: 'Inspection dispatched',
+  dismiss: 'Dismissed',
+};
+
+// Fleet service worklist — reads at OLTP latency from Lakebase Postgres
+// (public.gold_vehicle_predictions), and WRITES ops decisions back to Lakebase
+// (ops.service_orders) so acting on a vehicle persists as an operational record.
 function LakebaseWorklist() {
   const [rows, setRows] = useState<WorklistRow[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState('');
+  const [orders, setOrders] = useState<ServiceOrder[]>([]);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const loadOrders = () =>
+    fetch('/api/ops/service-orders')
+      .then((r) => r.json())
+      .then((d) => { if (Array.isArray(d)) setOrders(d as ServiceOrder[]); })
+      .catch(() => { /* non-fatal */ });
 
   useEffect(() => {
     let alive = true;
@@ -159,8 +185,30 @@ function LakebaseWorklist() {
       .then((r) => r.json())
       .then((d) => { if (alive) Array.isArray(d) ? setRows(d as WorklistRow[]) : setErr('No data'); })
       .catch((e) => { if (alive) setErr(String(e)); });
+    void loadOrders();
     return () => { alive = false; };
   }, []);
+
+  const scheduledIds = useMemo(() => new Set(orders.map((o) => o.vehicle_id)), [orders]);
+
+  async function act(row: WorklistRow, action: 'schedule_service' | 'dispatch_inspection') {
+    setBusyId(row.vehicle_id);
+    try {
+      const res = await fetch('/api/ops/service-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vehicle_id: row.vehicle_id,
+          fleet_brand: row.fleet_brand,
+          risk_pct: Number(row.risk_pct),
+          action,
+        }),
+      });
+      if (res.ok) await loadOrders();
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   const filtered = useMemo(
     () => (rows ?? []).filter((r) => r.vehicle_id.toLowerCase().includes(q.toLowerCase())),
@@ -173,7 +221,7 @@ function LakebaseWorklist() {
         <div className="flex items-center justify-between gap-2">
           <CardTitle>Vehicles Predicted to Need Service (7d)</CardTitle>
           <Badge variant="secondary" className="gap-1 shrink-0">
-            <Database className="h-3 w-3" /> Served from Lakebase
+            <Database className="h-3 w-3" /> Lakebase read + write-back
           </Badge>
         </div>
       </CardHeader>
@@ -195,26 +243,38 @@ function LakebaseWorklist() {
                     <th className="py-2 pr-3">Vehicle</th>
                     <th className="py-2 pr-3">Brand</th>
                     <th className="py-2 pr-3">7d Risk</th>
-                    <th className="py-2 pr-3">Anomaly</th>
                     <th className="py-2 pr-3">Brake %</th>
                     <th className="py-2 pr-3">Battery V</th>
                     <th className="py-2 pr-3">Km/Svc</th>
-                    <th className="py-2">Now?</th>
+                    <th className="py-2">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.slice(0, 12).map((r) => {
                     const sev = severity(Number(r.risk_pct) / 100);
+                    const done = scheduledIds.has(r.vehicle_id);
                     return (
                       <tr key={r.vehicle_id} className="border-b border-border/50">
                         <td className="py-1.5 pr-3 font-mono text-xs">{r.vehicle_id}</td>
                         <td className="py-1.5 pr-3">{r.fleet_brand}</td>
                         <td className={`py-1.5 pr-3 font-semibold ${sev.text}`}>{Number(r.risk_pct)}%</td>
-                        <td className="py-1.5 pr-3">{Number(r.anomaly_score).toFixed(2)}</td>
                         <td className="py-1.5 pr-3">{Number(r.brake_wear_pct).toFixed(0)}</td>
                         <td className="py-1.5 pr-3">{Number(r.battery_v).toFixed(1)}</td>
                         <td className="py-1.5 pr-3">{Number(r.km_since_service).toLocaleString()}</td>
-                        <td className="py-1.5">{Number(r.needs_service_now) === 1 ? '⚠️' : '—'}</td>
+                        <td className="py-1.5">
+                          {done ? (
+                            <Badge variant="secondary" className="text-emerald-700 dark:text-emerald-400">✓ Scheduled</Badge>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={busyId === r.vehicle_id}
+                              onClick={() => act(r, 'schedule_service')}
+                            >
+                              {busyId === r.vehicle_id ? '…' : 'Schedule service'}
+                            </Button>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
@@ -222,8 +282,30 @@ function LakebaseWorklist() {
               </table>
             </div>
             <div className="mt-2 text-xs text-muted-foreground">
-              {filtered.length} vehicles at ≥50% risk · low-latency read from Lakebase Postgres
+              {filtered.length} vehicles at ≥50% risk · read from Lakebase Postgres · actions persist to Lakebase
             </div>
+
+            {orders.length > 0 && (
+              <div className="mt-4 rounded-lg border bg-muted/30 p-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                  Recent operational actions (written to Lakebase)
+                </div>
+                <ul className="space-y-1 text-xs">
+                  {orders.slice(0, 5).map((o) => (
+                    <li key={o.id} className="flex items-center justify-between gap-2">
+                      <span>
+                        <span className="font-mono">{o.vehicle_id}</span>
+                        {o.fleet_brand ? ` · ${o.fleet_brand}` : ''} · {ACTION_LABEL[o.action] ?? o.action}
+                        {o.risk_pct != null ? ` (${o.risk_pct}% risk)` : ''}
+                      </span>
+                      <span className="text-muted-foreground shrink-0">
+                        {o.created_by} · {new Date(o.created_at).toLocaleTimeString()}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </>
         )}
       </CardContent>
