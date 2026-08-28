@@ -1,6 +1,12 @@
 == Resolving Lakebase endpoint + short-lived credential ==
    host=ep-lucky-king-d2ewxj61.database.us-east-1.cloud.databricks.com
 == Creating Postgres tables + indexes ==
+psql:/Users/dante.liew/vibe_sessions/bluebird_demo/bluebird-ops/lakebase/postgres_ddl.sql:33: NOTICE:  relation "gold_vehicle_predictions" already exists, skipping
+psql:/Users/dante.liew/vibe_sessions/bluebird_demo/bluebird-ops/lakebase/postgres_ddl.sql:47: NOTICE:  relation "gold_zone_live" already exists, skipping
+psql:/Users/dante.liew/vibe_sessions/bluebird_demo/bluebird-ops/lakebase/postgres_ddl.sql:59: NOTICE:  relation "gold_city_hourly" already exists, skipping
+psql:/Users/dante.liew/vibe_sessions/bluebird_demo/bluebird-ops/lakebase/postgres_ddl.sql:61: NOTICE:  relation "idx_vpred_risk" already exists, skipping
+psql:/Users/dante.liew/vibe_sessions/bluebird_demo/bluebird-ops/lakebase/postgres_ddl.sql:62: NOTICE:  relation "idx_zone_cityhr" already exists, skipping
+psql:/Users/dante.liew/vibe_sessions/bluebird_demo/bluebird-ops/lakebase/postgres_ddl.sql:63: NOTICE:  relation "idx_city_hr" already exists, skipping
 == gold_vehicle_predictions: export from Delta -> load into Postgres ==
    delta_rows=700  postgres_rows=700
 == gold_zone_live: export from Delta -> load into Postgres ==
@@ -8,4 +14,5 @@
 == gold_city_hourly: export from Delta -> load into Postgres ==
    delta_rows=120  postgres_rows=120
 == Granting SELECT to the app service principal ==
-ERROR:  role "71835aab-957e-4abf-b266-d2595f1d10a0" does not exist
+   granted SELECT to 71835aab-957e-4abf-b266-d2595f1d10a0
+== Done ==
