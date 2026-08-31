@@ -41,6 +41,25 @@ pipeline processes them (bronze is read as a STREAM), the serving gold is rebuil
 and Lakebase is reloaded — so the app's live-ops surfaces reflect data that moves,
 not a fixed snapshot with a simulated clock.
 
+## Post-review fix verified — realistic trip durations
+
+A code review caught that `gen_stream_batch` put `duration_min` in `make_interval`'s
+HOURS slot, inflating each live trip's dropoff by ~60×. After the fix (commit
+`cd5a0ee`), a fresh run produces realistic durations — isolated by ingest minute:
+
+```
+$ …query "SELECT date_format(_ingest_ts,'HH:mm') ingest_min, COUNT(*) rows,
+           AVG(dropoff-pickup)/60 avg_trip_min FROM …bronze WHERE trip_id LIKE 'RT-%' …"
+02:08  335 rows  avg_trip_min 1436.1   (pre-fix run)
+02:15  332 rows  avg_trip_min 1294.3   (pre-fix run)
+02:26  341 rows  avg_trip_min   23.2   <- FIXED run: realistic taxi trip length
+```
+
+(The pre-fix rows remain in bronze on purpose — it is a streaming source, so deleting
+from it would break the DLT pipeline. They are immaterial: the `duration_min` column
+was always correct; only the derived dropoff timestamp was off, and the app/dashboards
+key off `duration_min` and `request_ts`, not the dropoff delta.)
+
 ## Notes
 
 - Scripts only ever **append** to bronze; overwriting would break the streaming source.
