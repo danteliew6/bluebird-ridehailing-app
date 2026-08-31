@@ -33,6 +33,33 @@ databricks pipelines start-update 83464893-0567-4198-b580-633f026db12c --profile
 
 Verify → [evidence/01_lakeflow_ingest_dq.md](./evidence/01_lakeflow_ingest_dq.md).
 
+### Real-time ingestion (Lakeflow Job) — journey enhancement
+
+`bluebird-realtime-ingest` (job id `943223034248444`) turns the batch demo into a near-real-time
+flow. It is git-sourced from this repo (public, no credentials needed) and runs 4 serverless tasks:
+
+```
+gen_stream_batch (jobs/gen_stream_batch.py)   append a fresh micro-batch of current-time trips -> bronze
+      ↓
+run_dq_pipeline  (pipeline 83464893-…)         bronze -> silver/quarantine -> curated gold (streaming)
+      ↓
+rebuild_serving_gold (jobs/rebuild_serving_gold.py)   recompute gold_zone_live / gold_city_hourly (recent 30d)
+      ↓
+reload_lakebase (jobs/reload_lakebase.py)      refresh the Lakebase served tables (psycopg + minted DB credential)
+```
+
+```bash
+# create the job (once)
+databricks jobs create --json @jobs/bluebird_realtime_ingest.job.json --profile fevm-dante-classic-stable
+# run on demand
+databricks jobs run-now --json '{"job_id": 943223034248444}' --profile fevm-dante-classic-stable
+# unpause the every-10-min schedule when you want it live (costs only per run)
+databricks jobs update --job-id 943223034248444 --json '{"new_settings":{"schedule":{"quartz_cron_expression":"0 */10 * * * ?","timezone_id":"Asia/Jakarta","pause_status":"UNPAUSED"}}}' --profile fevm-dante-classic-stable
+```
+
+> Scripts only ever **append** to bronze — the DQ pipeline reads it as a STREAM, so overwriting
+> would force a full refresh. Verify → [evidence/07_realtime_job.md](./evidence/07_realtime_job.md).
+
 ## Stage 2 — Unity Catalog governance
 
 ```bash

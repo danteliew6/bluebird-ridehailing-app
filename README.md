@@ -27,11 +27,11 @@ trip telemetry is dirty and flows downstream unquarantined
 
 | # | Stage | What it does here | Code | Evidence (readable text) |
 |---|-------|-------------------|------|--------------------------|
-| 1 | **Lakeflow** | Ingest raw synthetic trip telemetry; 6 DQ expectations; quarantine ~8.3% bad rows; curate gold | [`governance/pipeline/`](./governance/pipeline), [`data_gen/`](./data_gen) | [01_lakeflow_ingest_dq.md](./evidence/01_lakeflow_ingest_dq.md) |
+| 1 | **Lakeflow** | Ingest raw synthetic trip telemetry (near-real-time via a scheduled **Lakeflow Job**); 6 DQ expectations; quarantine ~8.3% bad rows; curate gold | [`governance/pipeline/`](./governance/pipeline), [`data_gen/`](./data_gen), [`jobs/`](./jobs) | [01_lakeflow_ingest_dq.md](./evidence/01_lakeflow_ingest_dq.md), [07_realtime_job.md](./evidence/07_realtime_job.md) |
 | 2 | **Unity Catalog** | Tag PII, mask columns, city-scoped ABAC row filter; admin allowlist bypass | [`governance/apply_governance.py`](./governance/apply_governance.py) | [02_unity_catalog_governance.md](./evidence/02_unity_catalog_governance.md) |
 | 3 | **ML / AI** | XGBoost 7-day service-risk model + demand forecast; served via Model Serving | [`ml/`](./ml) | [03_ml_and_serving.md](./evidence/03_ml_and_serving.md) |
 | 4 | **Genie Room** | Natural-language Q&A (EN + Bahasa) over governed tables | [`genie/genie_agent.json`](./genie/genie_agent.json) | [04_genie_business_queries.md](./evidence/04_genie_business_queries.md) |
-| 5 | **Lakebase** | Curated gold loaded into Lakebase Postgres; served to the app at OLTP latency | [`lakebase/`](./lakebase) | [05_lakebase_serving.md](./evidence/05_lakebase_serving.md) |
+| 5 | **Lakebase** | Curated gold loaded into Lakebase Postgres; served to the app at OLTP latency; **write-back** of ops decisions to an app-owned schema | [`lakebase/`](./lakebase) | [05_lakebase_serving.md](./evidence/05_lakebase_serving.md), [06_lakebase_writeback.md](./evidence/06_lakebase_writeback.md) |
 | 6 | **Databricks App** | AppKit React ops console surfacing all of the above to the business | [`client/`](./client), [`server/`](./server) | live app + [notebook](./notebooks/bluebird_journey.ipynb) |
 
 A single executed walkthrough of all six stages (with outputs) lives at
@@ -65,9 +65,17 @@ service worklist + live model what-if), **Ask Bluebird** (Genie chat + embedded 
 data_gen/    Lakeflow ingest source (synthetic telemetry)      genie/      Genie space config
 governance/  UC governance + DQ pipeline SQL                   lakebase/   gold build + Postgres load
 ml/          model training + scoring                          dashboard/  AI/BI dashboard + SQL
-client/ server/ shared/ config/   the AppKit app               evidence/   per-stage run outputs (text)
-notebooks/   executed journey walkthrough                      docs/       screenshots
+jobs/        real-time ingestion Lakeflow Job scripts          evidence/   per-stage run outputs (text)
+client/ server/ shared/ config/   the AppKit app               notebooks/  executed journey walkthrough
 ```
+
+### Real-time ingestion (Lakeflow Job)
+
+`bluebird-realtime-ingest` (job id `943223034248444`, scheduled every 10 min, paused by default)
+runs the near-real-time loop: **append a fresh synthetic micro-batch** (current-time trips) →
+**run the DQ pipeline** → **rebuild serving gold** → **reload Lakebase**. This replaces the app's
+simulated clock with data that genuinely advances — see [BUILD.md](./BUILD.md) and
+[evidence/07_realtime_job.md](./evidence/07_realtime_job.md).
 
 **Workspace:** `fevm-dante-classic-stable` · **Catalog/schema:**
 `dante_classic_stable_catalog.bluebird_ride_hailing` · **Data is synthetic** — no real customer data.
