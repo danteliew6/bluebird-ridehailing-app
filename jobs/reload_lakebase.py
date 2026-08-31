@@ -56,10 +56,20 @@ def read_gold(table, cols):
         statement=f"SELECT {', '.join(cols)} FROM {S}.{table}",
         wait_timeout="50s",
     )
-    schema = stmt.manifest.schema.columns
-    types = [c.type_name.value if hasattr(c.type_name, "value") else str(c.type_name) for c in schema]
-    data = (stmt.result.data_array or []) if stmt.result else []
-    return [[coerce(cell, types[i]) for i, cell in enumerate(row)] for row in data]
+    state = stmt.status.state.value if hasattr(stmt.status.state, "value") else str(stmt.status.state)
+    if state != "SUCCEEDED":
+        raise RuntimeError(f"statement for {table} did not succeed: {state} ({stmt.status.error})")
+    types = [c.type_name.value if hasattr(c.type_name, "value") else str(c.type_name)
+             for c in stmt.manifest.schema.columns]
+    out = []
+    # Page through every result chunk (data_array is only the first chunk).
+    chunk = stmt.result
+    while chunk is not None:
+        for row in (chunk.data_array or []):
+            out.append([coerce(cell, types[i]) for i, cell in enumerate(row)])
+        nxt = chunk.next_chunk_index
+        chunk = w.statement_execution.get_statement_result_chunk_n(stmt.statement_id, nxt) if nxt is not None else None
+    return out
 
 
 # Mint a short-lived Lakebase credential (same call the CLI makes).

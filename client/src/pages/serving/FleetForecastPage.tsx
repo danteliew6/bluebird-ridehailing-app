@@ -139,7 +139,6 @@ interface WorklistRow {
   vehicle_id: string;
   fleet_brand: string;
   risk_pct: number;
-  anomaly_score: number;
   brake_wear_pct: number;
   battery_v: number;
   km_since_service: number;
@@ -189,7 +188,10 @@ function LakebaseWorklist() {
     return () => { alive = false; };
   }, []);
 
-  const scheduledIds = useMemo(() => new Set(orders.map((o) => o.vehicle_id)), [orders]);
+  const scheduledIds = useMemo(
+    () => new Set(orders.filter((o) => o.action === 'schedule_service').map((o) => o.vehicle_id)),
+    [orders],
+  );
 
   async function act(row: WorklistRow, action: 'schedule_service' | 'dispatch_inspection') {
     setBusyId(row.vehicle_id);

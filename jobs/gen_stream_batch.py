@@ -30,7 +30,7 @@ base = (
     .withColumn("request_ts_t", F.current_timestamp() - F.make_interval(F.lit(0), F.lit(0), F.lit(0), F.lit(0), F.lit(0), F.lit(0), F.col("_offset_s")))
     .withColumn("_pickup_wait", (F.rand() * 480 + 60).cast("int"))  # 1-9 min to pickup
     .withColumn("pickup_ts_t", F.col("request_ts_t") + F.make_interval(F.lit(0), F.lit(0), F.lit(0), F.lit(0), F.lit(0), F.lit(0), F.col("_pickup_wait")))
-    .withColumn("dropoff_ts_t", F.col("pickup_ts_t") + F.make_interval(F.lit(0), F.lit(0), F.lit(0), F.lit(0), F.col("duration_min").cast("int"), F.lit(0), F.lit(0)))
+    .withColumn("dropoff_ts_t", F.col("pickup_ts_t") + F.make_interval(F.lit(0), F.lit(0), F.lit(0), F.lit(0), F.lit(0), F.col("duration_min").cast("int"), F.lit(0)))
     # fresh unique trip_id so dedup keeps them
     .withColumn("trip_id", F.concat(F.lit("RT-"), F.date_format(F.current_timestamp(), "yyyyMMddHHmmss"), F.lit("-"), F.monotonically_increasing_id().cast("string")))
 )
@@ -52,10 +52,14 @@ raw = base.select(
     "status",
 ).withColumn("_r", F.rand())
 
-# Re-inject the same disjoint-band dirt (~9%) so the DQ story keeps running live.
+# Re-inject the same six disjoint-band defects (~9%) as gen_bronze.py so every DQ
+# rule keeps receiving fresh violations live (null driver, negative fare,
+# dropoff<=pickup, bad payment enum, zero distance, malformed timestamp).
 dirty = (raw
     .withColumn("driver_id", F.when(F.col("_r") < 0.020, F.lit(None)).otherwise(F.col("driver_id")))
     .withColumn("fare_idr", F.when((F.col("_r") >= 0.020) & (F.col("_r") < 0.038) & (F.col("status") == "completed"), F.lit("-1500")).otherwise(F.col("fare_idr")))
+    # 0.038-0.052 : dropoff not after pickup (set equal) on completed
+    .withColumn("dropoff_ts", F.when((F.col("_r") >= 0.038) & (F.col("_r") < 0.052) & (F.col("status") == "completed"), F.col("pickup_ts")).otherwise(F.col("dropoff_ts")))
     .withColumn("payment_method", F.when((F.col("_r") >= 0.052) & (F.col("_r") < 0.066), F.lit("UNKNOWN")).otherwise(F.col("payment_method")))
     .withColumn("distance_km", F.when((F.col("_r") >= 0.066) & (F.col("_r") < 0.078) & (F.col("status") == "completed"), F.lit("0")).otherwise(F.col("distance_km")))
     .withColumn("request_ts", F.when((F.col("_r") >= 0.078) & (F.col("_r") < 0.090), F.lit("N/A")).otherwise(F.col("request_ts")))

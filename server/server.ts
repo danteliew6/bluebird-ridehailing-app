@@ -84,7 +84,6 @@ createApp({
           const { rows } = await appkit.lakebase.query(
             `SELECT vehicle_id, fleet_brand,
                     ROUND(service_risk_7d * 100)::int AS risk_pct,
-                    ROUND(anomaly_score::numeric, 3)  AS anomaly_score,
                     ROUND(brake_wear_pct::numeric, 1) AS brake_wear_pct,
                     ROUND(battery_v::numeric, 2)      AS battery_v,
                     ROUND(km_since_service)::bigint   AS km_since_service,
