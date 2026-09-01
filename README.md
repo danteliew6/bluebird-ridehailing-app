@@ -32,7 +32,7 @@ trip telemetry is dirty and flows downstream unquarantined
 | 3 | **ML / AI** | XGBoost 7-day service-risk model + demand forecast; served via Model Serving | [`ml/`](./ml) | [03_ml_and_serving.md](./evidence/03_ml_and_serving.md) |
 | 4 | **Genie Room** | Natural-language Q&A (EN + Bahasa) over governed tables | [`genie/genie_agent.json`](./genie/genie_agent.json) | [04_genie_business_queries.md](./evidence/04_genie_business_queries.md) |
 | 5 | **Lakebase** | Curated gold loaded into Lakebase Postgres; served to the app at OLTP latency; **write-back** of ops decisions to an app-owned schema | [`lakebase/`](./lakebase) | [05_lakebase_serving.md](./evidence/05_lakebase_serving.md), [06_lakebase_writeback.md](./evidence/06_lakebase_writeback.md) |
-| 6 | **Databricks App** | AppKit React ops console surfacing all of the above to the business | [`client/`](./client), [`server/`](./server) | live app + [notebook](./notebooks/bluebird_journey.ipynb) |
+| 6 | **Databricks App** | AppKit React ops console; Overview/Fleet/Command Center served sub-second from Lakebase, Command Center is **live** (real current hour, auto-refresh) | [`client/`](./client), [`server/`](./server) | live app + [notebook](./notebooks/bluebird_journey.ipynb), [08_analytics_on_lakebase.md](./evidence/08_analytics_on_lakebase.md) |
 
 A single executed walkthrough of all six stages (with outputs) lives at
 [`notebooks/bluebird_journey.ipynb`](./notebooks/bluebird_journey.ipynb).
@@ -54,10 +54,16 @@ Full business framing is in the presentation deck (see the submission form / `do
 ## The app (Stage 6)
 
 AppKit React + Express app, deployed git-source to Databricks Apps. Pages: **Command Center**
-(live-ops cockpit, zone-demand map, alert feed — reads Lakebase), **Fleet & Forecast** (Lakebase
-service worklist + live model what-if), **Ask Bluebird** (Genie chat + embedded Genie room),
-**Data Access** (persona masking/row-filter preview), **AI/BI Dashboard** (embedded Lakeview),
-**Operations**, **Architecture**.
+(live-ops cockpit — LIVE by default at the real current hour, auto-refreshing from Lakebase every
+20s, with an optional Replay scrubber; zone-demand map + alert feed), **Overview** (KPIs + charts,
+served sub-second from Lakebase), **Fleet & Forecast** (Lakebase service worklist with **write-back**
++ live model what-if), **Ask Bluebird** (Genie chat + embedded Genie room), **Data Access** (persona
+masking/row-filter preview — kept on the governed SQL-warehouse path so UC FGAC applies), **AI/BI
+Dashboard** (embedded Lakeview), **Architecture**.
+
+**Data access split:** operational/overview reads are served from **Lakebase Postgres** (sub-second,
+no warehouse cold-start); the Governance page stays on the **SQL warehouse** because Unity Catalog
+column-masks and row-filters don't propagate to Lakebase — that page must show governance live.
 
 ## Where things live
 
