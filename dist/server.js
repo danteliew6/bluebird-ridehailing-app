@@ -113,6 +113,59 @@ createApp({
 					res.status(500).json({ error: String(e) });
 				}
 			});
+			const lbGet = (path, sql) => app.get(path, async (_req, res) => {
+				try {
+					const { rows } = await appkit.lakebase.query(sql);
+					res.json(rows);
+				} catch (e) {
+					res.status(500).json({ error: String(e) });
+				}
+			});
+			lbGet("/api/lakebase/overview-kpis", `
+        SELECT ROUND((SUM(fare_idr)/1e9)::numeric, 2)::float8                          AS revenue_bn_idr,
+               SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END)::int                AS completed_trips,
+               ROUND(AVG(CASE WHEN status='cancelled' THEN 1.0 ELSE 0 END)::numeric,4)::float8 AS cancellation_rate,
+               ROUND(AVG(CASE WHEN status='no_driver' THEN 1.0 ELSE 0 END)::numeric,4)::float8 AS no_driver_rate,
+               ROUND(AVG(surge_multiplier)::numeric, 2)::float8                        AS avg_surge,
+               ROUND(AVG(rating)::numeric, 2)::float8                                  AS avg_rating
+        FROM public.gold_trips_serving
+        WHERE request_ts >= NOW() - INTERVAL '30 days'`);
+			lbGet("/api/lakebase/trips-by-city", `
+        SELECT city, COUNT(*)::int AS trips FROM public.gold_trips_serving GROUP BY 1 ORDER BY 2 DESC`);
+			lbGet("/api/lakebase/revenue-by-day", `
+        SELECT to_char(date_trunc('day', request_ts), 'YYYY-MM-DD') AS day,
+               ROUND((SUM(fare_idr)/1e9)::numeric, 3)::float8 AS revenue_bn_idr
+        FROM public.gold_trips_serving
+        WHERE request_ts >= NOW() - INTERVAL '30 days' GROUP BY 1 ORDER BY 1`);
+			lbGet("/api/lakebase/top-zones", `
+        SELECT pickup_area_name AS pickup_zone, city, pickup_zone_type AS zone_type,
+               COUNT(*)::int AS trips,
+               ROUND((SUM(fare_idr)/1e6)::numeric, 1)::float8 AS revenue_m_idr,
+               ROUND(AVG(surge_multiplier)::numeric, 2)::float8 AS avg_surge
+        FROM public.gold_trips_serving
+        GROUP BY 1, 2, 3 ORDER BY trips DESC LIMIT 15`);
+			lbGet("/api/lakebase/outcome-mix", `
+        SELECT status, COUNT(*)::int AS trips FROM public.gold_trips_serving GROUP BY 1 ORDER BY 2 DESC`);
+			lbGet("/api/lakebase/nodriver-by-hour", `
+        SELECT EXTRACT(HOUR FROM request_ts)::int AS hour_of_day,
+               ROUND(AVG(CASE WHEN status='no_driver' THEN 1.0 ELSE 0 END)::numeric, 4)::float8 AS no_driver_rate
+        FROM public.gold_trips_serving WHERE city='Jakarta' GROUP BY 1 ORDER BY 1`);
+			lbGet("/api/lakebase/fleet-kpis", `
+        SELECT COUNT(*)::int AS fleet_size,
+               SUM(CASE WHEN service_risk_7d >= 0.5 THEN 1 ELSE 0 END)::int AS at_risk_7d,
+               SUM(needs_service_now)::int AS need_now,
+               ROUND(AVG(anomaly_score)::numeric, 3)::float8 AS avg_anomaly
+        FROM public.gold_vehicle_predictions`);
+			lbGet("/api/lakebase/risk-by-brand", `
+        SELECT fleet_brand, SUM(CASE WHEN service_risk_7d >= 0.5 THEN 1 ELSE 0 END)::int AS at_risk_7d
+        FROM public.gold_vehicle_predictions GROUP BY 1 ORDER BY 2 DESC`);
+			lbGet("/api/lakebase/forecast-by-day", `
+        SELECT to_char(date_trunc('day', forecast_ts), 'YYYY-MM-DD') AS day,
+               SUM(trips_forecast)::int AS forecast_trips
+        FROM public.gold_demand_forecast GROUP BY 1 ORDER BY 1`);
+			lbGet("/api/lakebase/forecast-by-city", `
+        SELECT city, SUM(trips_forecast)::int AS forecast_trips
+        FROM public.gold_demand_forecast GROUP BY 1 ORDER BY 2 DESC`);
 		});
 	}
 }).catch(console.error);

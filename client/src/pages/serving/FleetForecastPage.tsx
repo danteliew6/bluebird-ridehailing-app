@@ -1,5 +1,4 @@
 import {
-  useAnalyticsQuery,
   useServingInvoke,
   LineChart,
   BarChart,
@@ -16,6 +15,7 @@ import {
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { Database } from 'lucide-react';
+import { useLakebase } from '../../lib/useLakebase';
 
 function Kpi({ label, value, hint }: { label: string; value: ReactNode; hint?: string }) {
   return (
@@ -182,7 +182,11 @@ function LakebaseWorklist() {
     let alive = true;
     fetch('/api/lakebase/vehicle-worklist')
       .then((r) => r.json())
-      .then((d) => { if (alive) Array.isArray(d) ? setRows(d as WorklistRow[]) : setErr('No data'); })
+      .then((d) => {
+        if (!alive) return;
+        if (Array.isArray(d)) setRows(d as WorklistRow[]);
+        else setErr('No data');
+      })
       .catch((e) => { if (alive) setErr(String(e)); });
     void loadOrders();
     return () => { alive = false; };
@@ -271,7 +275,7 @@ function LakebaseWorklist() {
                               size="sm"
                               variant="outline"
                               disabled={busyId === r.vehicle_id}
-                              onClick={() => act(r, 'schedule_service')}
+                              onClick={() => { void act(r, 'schedule_service'); }}
                             >
                               {busyId === r.vehicle_id ? '…' : 'Schedule service'}
                             </Button>
@@ -315,8 +319,19 @@ function LakebaseWorklist() {
   );
 }
 
+interface FleetKpis {
+  fleet_size: number;
+  at_risk_7d: number;
+  need_now: number;
+  avg_anomaly: number;
+}
+
 export function FleetForecastPage() {
-  const { data, loading, error } = useAnalyticsQuery('kpi_fleet', {});
+  // All served from Lakebase Postgres (was the SQL warehouse).
+  const { data, loading, error } = useLakebase<FleetKpis>('/api/lakebase/fleet-kpis');
+  const forecastDay = useLakebase('/api/lakebase/forecast-by-day');
+  const forecastCity = useLakebase('/api/lakebase/forecast-by-city');
+  const riskByBrand = useLakebase('/api/lakebase/risk-by-brand');
   const k = data?.[0];
 
   return (
@@ -332,13 +347,13 @@ export function FleetForecastPage() {
         <Card className="shadow-sm">
           <CardHeader><CardTitle>Forecasted Demand — Next 7 Days</CardTitle></CardHeader>
           <CardContent>
-            <LineChart queryKey="forecast_by_day" parameters={{}} xKey="day" yKey="forecast_trips" height={280} />
+            <LineChart data={forecastDay.data ?? []} xKey="day" yKey="forecast_trips" height={280} />
           </CardContent>
         </Card>
         <Card className="shadow-sm">
           <CardHeader><CardTitle>Forecasted Demand by City (7d)</CardTitle></CardHeader>
           <CardContent>
-            <BarChart queryKey="forecast_by_city" parameters={{}} xKey="city" yKey="forecast_trips" height={280} />
+            <BarChart data={forecastCity.data ?? []} xKey="city" yKey="forecast_trips" height={280} />
           </CardContent>
         </Card>
       </div>
@@ -361,7 +376,7 @@ export function FleetForecastPage() {
         <Card className="shadow-sm lg:col-span-1">
           <CardHeader><CardTitle>At-Risk Vehicles by Fleet Brand</CardTitle></CardHeader>
           <CardContent>
-            <BarChart queryKey="risk_by_brand" parameters={{}} xKey="fleet_brand" yKey="at_risk_7d" height={300} orientation="horizontal" />
+            <BarChart data={riskByBrand.data ?? []} xKey="fleet_brand" yKey="at_risk_7d" height={300} orientation="horizontal" />
           </CardContent>
         </Card>
         <LakebaseWorklist />

@@ -45,3 +45,14 @@ SELECT
 FROM dante_classic_stable_catalog.bluebird_ride_hailing.trips_curated_gold
 WHERE request_ts >= date_sub(current_date(), 30)
 GROUP BY 1, 2;
+
+-- Curated trips (all-time) + pickup zone — serves the Overview page aggregations
+-- from Postgres (KPIs, trips-by-city, revenue-by-day, top-zones, outcome-mix, no-driver-by-hour).
+CREATE OR REPLACE TABLE dante_classic_stable_catalog.bluebird_ride_hailing.gold_trips_serving AS
+SELECT t.request_ts, t.city, t.status, t.fare_idr, t.surge_multiplier, t.rating,
+       z.area_name AS pickup_area_name, z.zone_type AS pickup_zone_type
+FROM dante_classic_stable_catalog.bluebird_ride_hailing.trips_curated_gold t
+LEFT JOIN dante_classic_stable_catalog.bluebird_ride_hailing.dim_zone z ON t.pickup_zone_id = z.zone_id;
+
+-- (gold_demand_forecast is produced by ml/train_demand_forecast.py; it is loaded into
+--  Lakebase as-is to serve the Fleet & Forecast charts.)

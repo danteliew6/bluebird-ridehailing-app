@@ -16,15 +16,18 @@ CATALOG = "dante_classic_stable_catalog"
 SCHEMA = "bluebird_ride_hailing"
 FQ = lambda t: f"{CATALOG}.{SCHEMA}.{t}"
 
-# batch size (arg 1, default 400) — small so each ~5-min run is cheap
+# batch size (arg 1, default 400) — small so each scheduled run (every 10 min) is cheap
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 400
 
 spark = SparkSession.builder.getOrCreate()
 
 # Sample real trips -> valid FKs; restamp to "now"; recompute a fresh trip_id.
+# sample() avoids the full global sort that orderBy(rand()) would force on fact_trip.
+_total = spark.table(FQ("fact_trip")).count()
+_frac = min(1.0, (N * 3.0) / max(_total, 1))
 base = (
     spark.table(FQ("fact_trip"))
-    .orderBy(F.rand())
+    .sample(withReplacement=False, fraction=_frac, seed=None)
     .limit(N)
     .withColumn("_offset_s", (F.rand() * 300).cast("int"))          # request within last 5 min
     .withColumn("request_ts_t", F.current_timestamp() - F.make_interval(F.lit(0), F.lit(0), F.lit(0), F.lit(0), F.lit(0), F.lit(0), F.col("_offset_s")))
@@ -66,8 +69,10 @@ dirty = (raw
     .withColumn("_ingest_ts", F.current_timestamp())
     .drop("_r"))
 
-dirty.write.mode("append").saveAsTable(FQ("trip_events_bronze"))
-
+# Cache before write so the count reflects exactly what was persisted (the frame is
+# nondeterministic — rand()/current_timestamp()/monotonically_increasing_id()).
+dirty = dirty.cache()
 appended = dirty.count()
+dirty.write.mode("append").saveAsTable(FQ("trip_events_bronze"))
 total = spark.table(FQ("trip_events_bronze")).count()
 print(f"APPENDED {appended} fresh trips to bronze (current-time). bronze total now {total}.")

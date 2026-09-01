@@ -1,5 +1,4 @@
 import {
-  useAnalyticsQuery,
   Card,
   CardContent,
   CardHeader,
@@ -30,7 +29,8 @@ import {
 // How often to re-run the underlying analytics queries (feels live; picks up pipeline updates).
 const REFRESH_MS = 20000;
 
-interface BrandRiskRow { fleet_brand: string; at_risk_7d: number }
+// `type` (not interface) so it satisfies ChartData's Record<string, unknown>[] shape.
+type BrandRiskRow = { fleet_brand: string; at_risk_7d: number };
 
 // ---------------------------------------------------------------------------
 // Data feeders — useAnalyticsQuery is an SSE subscription with no refetch API, so
@@ -60,8 +60,7 @@ function ZoneFeeder({ onData }: { onData: (d: ZoneRow[]) => void }) {
   return null;
 }
 function BrandFeeder({ onData }: { onData: (d: BrandRiskRow[]) => void }) {
-  const { data } = useAnalyticsQuery('risk_by_brand', {});
-  useEffect(() => { if (data) onData(data as BrandRiskRow[]); }, [data, onData]);
+  useLakebaseFeed<BrandRiskRow>('/api/lakebase/risk-by-brand', onData);
   return null;
 }
 
@@ -262,8 +261,11 @@ function ZoneMap({
 export function CommandCenterPage() {
   const navigate = useNavigate();
 
-  const [simHour, setSimHour] = useState(18); // open on the evening-peak incident
-  const [playing, setPlaying] = useState(true);
+  // LIVE by default: pinned to the real current hour, auto-refreshing from Lakebase.
+  // REPLAY: freeze on a chosen hour and scrub the 24h timeline (the old sim-clock).
+  const [mode, setMode] = useState<'live' | 'replay'>('live');
+  const [simHour, setSimHour] = useState<number>(new Date().getHours());
+  const [playing, setPlaying] = useState(false); // replay auto-advance
   const [city, setCity] = useState('Jakarta');
   const [selZone, setSelZone] = useState<ZoneRow | null>(null);
 
@@ -279,14 +281,22 @@ export function CommandCenterPage() {
   const onZones = useCallback((d: ZoneRow[]) => setZoneRows(d), []);
   const onBrand = useCallback((d: BrandRiskRow[]) => setBrandRisk(d), []);
 
-  // advance the simulated clock
+  // LIVE mode: keep the view pinned to the real current hour (snap-to-now happens in
+  // the toggle handler / initial state; this only keeps it current over time).
   useEffect(() => {
-    if (!playing) return;
+    if (mode !== 'live') return;
+    const t = setInterval(() => setSimHour(new Date().getHours()), REFRESH_MS);
+    return () => clearInterval(t);
+  }, [mode]);
+
+  // REPLAY mode: optional auto-advance through the simulated 24h day.
+  useEffect(() => {
+    if (mode !== 'replay' || !playing) return;
     const t = setInterval(() => setSimHour((h) => (h + 1) % 24), 3600);
     return () => clearInterval(t);
-  }, [playing]);
+  }, [mode, playing]);
 
-  // periodic data refresh
+  // periodic data refresh (re-runs the Lakebase feeders) — this is what makes LIVE live.
   useEffect(() => {
     const t = setInterval(() => setTick((x) => x + 1), REFRESH_MS);
     return () => clearInterval(t);
@@ -432,10 +442,31 @@ export function CommandCenterPage() {
           <div className="flex items-center gap-1.5 text-sm font-medium text-foreground bg-card border rounded-md px-2.5 py-1.5 shadow-sm">
             <Clock className="h-3.5 w-3.5 text-muted-foreground" /> {clock}
           </div>
-          <Button variant={playing ? 'secondary' : 'default'} size="sm" onClick={() => setPlaying((p) => !p)} className="gap-1">
-            {playing ? <><Pause className="h-3.5 w-3.5" /> Live</> : <><Play className="h-3.5 w-3.5" /> Paused</>}
+          {mode === 'live' ? (
+            <span className="flex items-center gap-1.5 text-sm font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-md px-2.5 py-1.5">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+              </span>
+              LIVE
+            </span>
+          ) : (
+            <>
+              <Button variant={playing ? 'secondary' : 'default'} size="sm" onClick={() => setPlaying((p) => !p)} className="gap-1">
+                {playing ? <><Pause className="h-3.5 w-3.5" /> Playing</> : <><Play className="h-3.5 w-3.5" /> Play</>}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => { setSimHour(18); setPlaying(false); }}>Jump to peak</Button>
+            </>
+          )}
+          <Button
+            variant={mode === 'replay' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => { if (mode === 'live') { setMode('replay'); setPlaying(false); } else { setSimHour(new Date().getHours()); setMode('live'); setPlaying(false); } }}
+            className="gap-1"
+            title={mode === 'live' ? 'Replay recent hours' : 'Return to live'}
+          >
+            <Clock className="h-3.5 w-3.5" /> {mode === 'live' ? 'Replay' : 'Go live'}
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => { setSimHour(18); setPlaying(false); }}>Jump to peak</Button>
           <Button variant="ghost" size="sm" onClick={() => setTick((x) => x + 1)} className="gap-1 text-muted-foreground" title="Refresh now">
             <RefreshCw className="h-3.5 w-3.5" />
             {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : 'Refresh'}
@@ -490,7 +521,7 @@ export function CommandCenterPage() {
                   return (
                     <button
                       key={h.hour}
-                      onClick={() => { setSimHour(h.hour); setPlaying(false); }}
+                      onClick={() => { setMode('replay'); setSimHour(h.hour); setPlaying(false); }}
                       title={`${String(h.hour).padStart(2, '0')}:00 · no-driver ${fmtPct(h.no_driver_rate)}`}
                       className={`flex-1 rounded-sm transition-all ${active ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : 'hover:opacity-80'}`}
                       style={{ height: 40, backgroundColor: TONE_DOT[t], opacity: active ? 1 : 0.55 }}
@@ -611,7 +642,7 @@ export function CommandCenterPage() {
             <CardTitle className="text-base flex items-center gap-2"><Car className="h-4 w-4 text-primary" /> Fleet Health Watch</CardTitle>
           </CardHeader>
           <CardContent>
-            <BarChart queryKey="risk_by_brand" parameters={{}} xKey="fleet_brand" yKey="at_risk_7d" height={130} orientation="horizontal" />
+            <BarChart data={brandRisk} xKey="fleet_brand" yKey="at_risk_7d" height={130} orientation="horizontal" />
             <div className="mt-2">
               <DataTable queryKey="vehicles_at_risk" parameters={{}} filterColumn="vehicle_id" filterPlaceholder="Filter vehicle…" pageSize={5} />
             </div>
@@ -620,7 +651,7 @@ export function CommandCenterPage() {
       </div>
 
       <p className="text-xs text-muted-foreground text-center">
-        Simulated live view over the last 30 days of governed <span className="font-mono">trips_curated_gold</span> · fleet risk from the served AutoML model · queries auto-refresh every {REFRESH_MS / 1000}s · all data Unity Catalog governed.
+        {mode === 'live' ? 'Live view' : 'Replay'} · served from Lakebase Postgres (<span className="font-mono">gold_zone_live</span> / <span className="font-mono">gold_city_hourly</span>) · fleet risk from the served AutoML model · auto-refreshes every {REFRESH_MS / 1000}s · new data arrives via the real-time ingestion job · governed in Unity Catalog.
       </p>
     </div>
   );

@@ -37,6 +37,16 @@ WHERE request_ts >= date_sub(current_date(),30)
 GROUP BY 1,2
 """)
 
+# Curated trips + pickup zone — powers the Overview page aggregations from Postgres.
+spark.sql(f"""
+CREATE OR REPLACE TABLE {S}.gold_trips_serving AS
+SELECT t.request_ts, t.city, t.status, t.fare_idr, t.surge_multiplier, t.rating,
+       z.area_name AS pickup_area_name, z.zone_type AS pickup_zone_type
+FROM {S}.trips_curated_gold t
+LEFT JOIN {S}.dim_zone z ON t.pickup_zone_id = z.zone_id
+""")
+
 zl = spark.table(f"{S}.gold_zone_live").count()
 ch = spark.table(f"{S}.gold_city_hourly").count()
-print(f"REBUILT gold_zone_live={zl} rows, gold_city_hourly={ch} rows.")
+ts = spark.table(f"{S}.gold_trips_serving").count()
+print(f"REBUILT gold_zone_live={zl} rows, gold_city_hourly={ch} rows, gold_trips_serving={ts} rows.")

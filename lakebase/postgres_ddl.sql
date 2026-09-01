@@ -58,6 +58,31 @@ CREATE TABLE IF NOT EXISTS public.gold_city_hourly (
   PRIMARY KEY (city, hour_of_day)
 );
 
-CREATE INDEX IF NOT EXISTS idx_vpred_risk  ON public.gold_vehicle_predictions (service_risk_7d DESC);
-CREATE INDEX IF NOT EXISTS idx_zone_cityhr ON public.gold_zone_live (city, hour_of_day);
-CREATE INDEX IF NOT EXISTS idx_city_hr     ON public.gold_city_hourly (city, hour_of_day);
+-- Curated trips (all-time) + pickup zone — powers the Overview page aggregations
+-- (KPIs, trips-by-city, revenue-by-day, top-zones, outcome-mix, no-driver-by-hour)
+-- entirely from Postgres instead of the SQL warehouse.
+CREATE TABLE IF NOT EXISTS public.gold_trips_serving (
+  request_ts        TIMESTAMPTZ,
+  city              TEXT,
+  status            TEXT,
+  fare_idr          BIGINT,
+  surge_multiplier  DOUBLE PRECISION,
+  rating            DOUBLE PRECISION,
+  pickup_area_name  TEXT,
+  pickup_zone_type  TEXT
+);
+
+-- 7-day demand forecast — powers the Fleet & Forecast charts.
+CREATE TABLE IF NOT EXISTS public.gold_demand_forecast (
+  city            TEXT,
+  forecast_ts     TIMESTAMPTZ,
+  trips_forecast  DOUBLE PRECISION,
+  trips_upper     DOUBLE PRECISION,
+  trips_lower     DOUBLE PRECISION
+);
+
+CREATE INDEX IF NOT EXISTS idx_vpred_risk   ON public.gold_vehicle_predictions (service_risk_7d DESC);
+CREATE INDEX IF NOT EXISTS idx_zone_cityhr  ON public.gold_zone_live (city, hour_of_day);
+CREATE INDEX IF NOT EXISTS idx_city_hr      ON public.gold_city_hourly (city, hour_of_day);
+CREATE INDEX IF NOT EXISTS idx_trips_ts     ON public.gold_trips_serving (request_ts);
+CREATE INDEX IF NOT EXISTS idx_trips_city   ON public.gold_trips_serving (city);

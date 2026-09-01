@@ -17,7 +17,7 @@ EP="${BRANCH}/endpoints/primary"
 CATALOG="dante_classic_stable_catalog"
 SCHEMA="bluebird_ride_hailing"
 PGUSER="dante.liew@databricks.com"
-TABLES=(gold_vehicle_predictions gold_zone_live gold_city_hourly)
+TABLES=(gold_vehicle_predictions gold_zone_live gold_city_hourly gold_trips_serving gold_demand_forecast)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 TMP="$(mktemp -d)"
 

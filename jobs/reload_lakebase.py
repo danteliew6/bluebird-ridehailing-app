@@ -73,6 +73,11 @@ def read_gold(table, cols):
 
 
 # Mint a short-lived Lakebase credential (same call the CLI makes).
+# NOTE: the pg role is whoever runs the job. On-demand runs execute as the job
+# owner (a human with grants on public.*), which is the supported path here. If
+# this job is ever put on a schedule that runs as a service principal, grant that
+# SP SELECT on public.* first (see lakebase/load_serving_tables.sh) or the connect
+# will fail auth.
 cred = w.api_client.do("POST", "/api/2.0/postgres/credentials", body={"endpoint": ENDPOINT})
 token = cred["token"]
 user = w.current_user.me().user_name
