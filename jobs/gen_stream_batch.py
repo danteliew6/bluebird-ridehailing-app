@@ -69,10 +69,10 @@ dirty = (raw
     .withColumn("_ingest_ts", F.current_timestamp())
     .drop("_r"))
 
-# Cache before write so the count reflects exactly what was persisted (the frame is
-# nondeterministic — rand()/current_timestamp()/monotonically_increasing_id()).
-dirty = dirty.cache()
+# Append the batch. Row COUNT is deterministic (sample+limit yields N rows); only the
+# column values are random, so counting before the write is safe. (cache()/persist is
+# not supported on serverless compute, so we don't materialize the frame.)
 appended = dirty.count()
 dirty.write.mode("append").saveAsTable(FQ("trip_events_bronze"))
 total = spark.table(FQ("trip_events_bronze")).count()
-print(f"APPENDED {appended} fresh trips to bronze (current-time). bronze total now {total}.")
+print(f"APPENDED ~{appended} fresh trips to bronze (current-time). bronze total now {total}.")
