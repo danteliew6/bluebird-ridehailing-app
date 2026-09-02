@@ -1,9 +1,19 @@
-"""Shared config + zone master for the Bluebird ride-hailing demo data generation."""
-from databricks.connect import DatabricksSession
+"""Shared config + zone master for the Bluebird ride-hailing demo data generation.
 
-PROFILE = "fevm-dante-classic-stable"
-CATALOG = "dante_classic_stable_catalog"
-SCHEMA = "bluebird_ride_hailing"
+Catalog / schema / profile / Spark bootstrap come from the repo-root ``bluebird_config``
+module (env-driven), so the whole data-gen stage re-points at another workspace via
+environment variables set by the DABs bootstrap job. Defaults reproduce the original build.
+"""
+import os
+import sys
+
+# Make the repo-root config importable whether this runs as `python3 data_gen/x.py`
+# locally (sys.path[0] == data_gen/) or as a job task.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
+from bluebird_config import CATALOG, SCHEMA, PROFILE, get_spark, fq  # noqa: E402,F401
 
 N_DRIVERS = 700           # 1:1 with vehicles
 N_VEHICLES = 700
@@ -75,11 +85,3 @@ ZONES = [
     ("Medan", "Kualanamu Airport", "airport"),
     ("Medan", "Sun Plaza", "mall"),
 ]
-
-
-def get_spark():
-    return DatabricksSession.builder.profile(PROFILE).serverless(True).getOrCreate()
-
-
-def fq(table: str) -> str:
-    return f"{CATALOG}.{SCHEMA}.{table}"

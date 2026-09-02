@@ -1,148 +1,96 @@
-# BUILD — reproduce the Bluebird journey
+# BUILD — package & replicate the Bluebird solution (DAB)
 
-Every stage runs against Databricks workspace `fevm-dante-classic-stable` in catalog/schema
-`dante_classic_stable_catalog.bluebird_ride_hailing`. All data is **synthetic** — no real
-customer data is used. Captured outputs for each stage are in [`evidence/`](./evidence) and the
-executed walkthrough is [`notebooks/bluebird_journey.ipynb`](./notebooks/bluebird_journey.ipynb).
+The whole solution is packaged as a **Declarative Automation Bundle (DAB)** so it
+can be reproduced in another workspace with a handful of commands. All data is
+**synthetic** — no real customer data. Everything is parameterized off bundle
+variables (catalog, schema, warehouse, Lakebase project, …); the `source` target
+reproduces the original build on `fevm-dante-classic-stable`, and the `replica`
+target is a fill-in-the-blank template for a new workspace.
+
+## What the bundle contains
+
+| DAB resource | File | Notes |
+|---|---|---|
+| Pipeline `bluebird_dq_pipeline` | `resources/pipeline.yml` | bronze → silver/quarantine → curated gold (SQL in `governance/pipeline/`) |
+| Job `bluebird-bootstrap` | `resources/job_bootstrap.yml` | one-shot data + governance + metric views + ML + serving gold |
+| Job `bluebird-realtime-ingest` | `resources/job_realtime.yml` | near-real-time gen → DQ → gold → **refresh synced tables** (schedule PAUSED) |
+| App `bluebird-ops` | `resources/app.yml` | AppKit control center, deployed from bundle-synced workspace files |
+| Dashboard `Bluebird Ops` | `resources/dashboard.yml` | AI/BI Lakeview dashboard |
+
+Not DAB-native (provisioned by the replicate flow):
+- **Lakebase synced tables** — created via `lakebase/setup_synced_tables.sh`
+  (the DAB `synced_database_tables` resource is deprecated and fails on current
+  Lakebase, so the supported `databricks postgres create-synced-table` CLI is used).
+- **Genie space** — no create API; imported from `genie/genie_agent.json`.
+
+`bootstrap/run.py` is the single entrypoint for every serverless job task: it
+promotes `--bb-*` task parameters into `BLUEBIRD_*` env vars before importing
+`bluebird_config`, so the stage scripts (`data_gen/`, `governance/`, `ml/`,
+`jobs/`, `bootstrap/`) need no job-specific code and re-point at any workspace.
 
 ## Prerequisites
 
-- **Databricks CLI** ≥ v1.3 authenticated to the workspace:
-  `databricks auth login --host https://fevm-dante-classic-stable.cloud.databricks.com --profile fevm-dante-classic-stable`
-- **Python 3** with `databricks-connect` (serverless) for the data-gen / ML scripts
-- **Node.js 22+** and **npm** for the app
-- **psql** (libpq) for the Lakebase load
-- SQL warehouse id `114b2f7bfa1273b1` (used by the CLI query helper below)
+- Databricks CLI ≥ v1.3, authenticated: `databricks auth login --host <workspace> --profile <profile>`
+- `psql` (libpq) for the Lakebase SP grant
+- Node 22+ / npm only for local app dev (the platform builds the app on deploy)
 
-Helper used throughout:
-`databricks experimental aitools tools query -w 114b2f7bfa1273b1 --profile fevm-dante-classic-stable "<SQL>"`
-
-## Stage 1 — Lakeflow ingest + data quality
+## Reproduce on the original workspace (`source`)
 
 ```bash
-# 1a. Generate synthetic raw telemetry + dims/facts (Databricks Connect, serverless)
-python3 data_gen/gen_dims.py
-python3 data_gen/gen_bronze.py      # ~90.9k raw trip events, ~8-9% seeded defects
-python3 data_gen/gen_facts.py
-python3 data_gen/add_comments.py
-
-# 1b. Run the Lakeflow DQ pipeline (bronze -> silver/quarantine -> curated gold)
-#     SQL: governance/pipeline/bluebird_dq_pipeline.sql  (pipeline id 83464893-…-633f026db12c)
-databricks pipelines start-update 83464893-0567-4198-b580-633f026db12c --profile fevm-dante-classic-stable
+./replicate.sh --target source --profile fevm-dante-classic-stable
 ```
 
-Verify → [evidence/01_lakeflow_ingest_dq.md](./evidence/01_lakeflow_ingest_dq.md).
+That runs, in dependency order: retarget static assets (no-op on source) → create
+the Lakebase project → `bundle deploy` → `bundle run bluebird_bootstrap` → Lakebase
+synced-table setup + app-SP grant. Then import the Genie space (below).
 
-### Real-time ingestion (Lakeflow Job) — journey enhancement
+## Replicate into a NEW workspace (`replica`)
 
-`bluebird-realtime-ingest` (job id `943223034248444`) turns the batch demo into a near-real-time
-flow. It is git-sourced from this repo (public, no credentials needed) and runs 4 serverless tasks:
+1. Edit `databricks.yml` → `targets.replica`: set `workspace.host` (and, if you
+   prefer, the variable defaults). Leave `genie_space_id` until after the Genie import.
+2. Run, passing the target catalog/schema/warehouse as flags — `replicate.sh`
+   forwards them to the bundle as `--var` and exports the matching `BLUEBIRD_*`
+   env for the shell steps (render + Lakebase), so everything lines up:
+   ```bash
+   ./replicate.sh --profile <your-profile> \
+       --catalog <catalog> --schema <schema> --warehouse <warehouse-id>
+   ```
+   (`--target replica` is the default.)
+3. **Genie**: import `genie/genie_agent.json` (retarget its `data_sources` to your
+   `catalog.schema`), set `var.genie_space_id` in `databricks.yml` (or pass
+   `--var genie_space_id=<id>`), and redeploy
+   (`databricks bundle deploy -t replica --profile <profile>`) so the app binds it.
 
-```
-gen_stream_batch (jobs/gen_stream_batch.py)   append a fresh micro-batch of current-time trips -> bronze
-      ↓
-run_dq_pipeline  (pipeline 83464893-…)         bronze -> silver/quarantine -> curated gold (streaming)
-      ↓
-rebuild_serving_gold (jobs/rebuild_serving_gold.py)   recompute gold_zone_live / gold_city_hourly (recent 30d)
-      ↓
-reload_lakebase (jobs/reload_lakebase.py)      refresh the Lakebase served tables (psycopg + minted DB credential)
-```
+> The bundle is fully parameterized; step 0 of `replicate.sh` also retargets the
+> app's catalog-qualified SQL (`config/queries/*.sql`) and the dashboard JSON when
+> the replica catalog/schema differs from the original.
+
+## Individual bundle commands
 
 ```bash
-# create the job (once)
-databricks jobs create --json @jobs/bluebird_realtime_ingest.job.json --profile fevm-dante-classic-stable
-# run on demand
-databricks jobs run-now --json '{"job_id": 943223034248444}' --profile fevm-dante-classic-stable
-# unpause the every-10-min schedule when you want it live (costs only per run)
-databricks jobs update --job-id 943223034248444 --json '{"new_settings":{"schedule":{"quartz_cron_expression":"0 */10 * * * ?","timezone_id":"Asia/Jakarta","pause_status":"UNPAUSED"}}}' --profile fevm-dante-classic-stable
+databricks bundle validate -t source --profile <profile>
+databricks bundle deploy   -t source --profile <profile>
+databricks bundle run bluebird_bootstrap        -t source --profile <profile>
+databricks bundle run bluebird_realtime_ingest  -t source --profile <profile>   # on demand
 ```
 
-> Scripts only ever **append** to bronze — the DQ pipeline reads it as a STREAM, so overwriting
-> would force a full refresh. Verify → [evidence/07_realtime_job.md](./evidence/07_realtime_job.md).
+Unpause the realtime schedule when you want it live (it only costs per run):
+edit `resources/job_realtime.yml` `pause_status: UNPAUSED` and redeploy.
 
-## Stage 2 — Unity Catalog governance
-
-```bash
-python3 governance/apply_governance.py   # PII tags, column masks, city row filter, allowlist UDF
-```
-
-Verify → [evidence/02_unity_catalog_governance.md](./evidence/02_unity_catalog_governance.md).
-
-## Stage 3 — ML + Model Serving
+## Local app dev
 
 ```bash
-python3 ml/train_bluebird_ml.py       # XGBoost service-risk model + Optuna HPO -> UC @prod
-python3 ml/reserve_proba.py           # pyfunc probability wrapper (@prod) -> gold_vehicle_predictions
-python3 ml/train_demand_forecast.py   # XGBoost 7-day demand forecast -> gold_demand_forecast
-# endpoint 'bluebird-maintenance' serves the wrapper; test:
-databricks serving-endpoints query bluebird-maintenance --profile fevm-dante-classic-stable \
-  --json '{"dataframe_records":[{"engine_temp_c":118,"brake_wear_pct":95,"battery_v":11.2,"km_since_service":13500,"dtc_count":4,"anomaly_score":0.82,"vehicle_age":11}]}'
-```
-
-Verify → [evidence/03_ml_and_serving.md](./evidence/03_ml_and_serving.md).
-
-## Stage 4 — Genie Room
-
-Import/refresh the Genie space from [`genie/genie_agent.json`](./genie/genie_agent.json)
-(space id `01f19a33de0a1111ab1e0302d7c0b8c7`, EN + Bahasa). Sample questions run as SQL →
-[evidence/04_genie_business_queries.md](./evidence/04_genie_business_queries.md).
-
-## Stage 5 — Lakebase operational serving
-
-```bash
-# 5a. Build the two serving-gold tables (materialize CC aggregations)
-databricks experimental aitools tools query -w 114b2f7bfa1273b1 --profile fevm-dante-classic-stable \
-  "$(cat lakebase/build_serving_gold.sql)"   # run each statement (see file)
-
-# 5b. Create the Lakebase Autoscaling project (once)
-databricks postgres create-project bluebird-ops-db \
-  --json '{"spec":{"display_name":"Bluebird Ops (Lakebase)"}}' --profile fevm-dante-classic-stable
-
-# 5c. Load gold -> Postgres and grant the app SP read access
-./lakebase/load_serving_tables.sh
-```
-
-> This workspace blocks `CREATE CATALOG`, so UC synced tables aren't available; we load gold into
-> Postgres directly (see the note in `lakebase/postgres_ddl.sql`). On a catalog-enabled workspace,
-> `databricks postgres create-synced-table` is the drop-in replacement.
-
-Verify → [evidence/05_lakebase_serving.md](./evidence/05_lakebase_serving.md).
-
-## Stage 6 — the Databricks App
-
-```bash
-npm install
-npm run build                 # -> dist/server.js + client/dist/
-databricks apps validate --profile fevm-dante-classic-stable
-
-# bind resources (sql-warehouse, genie-space, serving-endpoint, postgres) — merge, don't replace:
-databricks apps create-update bluebird-ops --json @<(cat <<'JSON'
-{"update_mask":"resources","app":{"resources":[
-  {"name":"sql-warehouse","sql_warehouse":{"id":"114b2f7bfa1273b1","permission":"CAN_USE"}},
-  {"name":"genie-space","genie_space":{"name":"bluebird_data","space_id":"01f19a33de0a1111ab1e0302d7c0b8c7","permission":"CAN_RUN"}},
-  {"name":"serving-endpoint","serving_endpoint":{"name":"bluebird-maintenance","permission":"CAN_QUERY"}},
-  {"name":"postgres","postgres":{"branch":"projects/bluebird-ops-db/branches/production","database":"projects/bluebird-ops-db/branches/production/databases/databricks-postgres","permission":"CAN_CONNECT_AND_CREATE"}}
-]}}
-JSON
-) --profile fevm-dante-classic-stable
-
-# deploy from git (this workspace is git-source only; commit dist/ + client/dist first)
-git add -f dist/server.js client/dist && git commit -m "build" && git push origin main
-databricks apps deploy bluebird-ops --json '{"git_source":{"branch":"main","source_code_path":""}}' --profile fevm-dante-classic-stable
-```
-
-### Local app dev
-
-```bash
-npm run dev     # hot-reload; set server/.env with PGHOST/PGDATABASE/LAKEBASE_ENDPOINT for Lakebase
+npm install && npm run dev     # set server/.env with PGHOST/PGDATABASE/LAKEBASE_ENDPOINT for Lakebase
 npm run lint && npm run typecheck
 ```
 
-> **Deploy before local Lakebase dev** so the app service principal owns/receives its Postgres
-> role; then `lakebase/load_serving_tables.sh` grants it SELECT on the served tables.
+> Deploy the app before local Lakebase dev so the app service principal owns its
+> Postgres role; `lakebase/setup_synced_tables.sh` then grants it SELECT.
 
 ## Regenerate the executed notebook
 
 ```bash
 python3 notebooks/build_journey_nb.py   # -> notebooks/bluebird_journey.ipynb
 ```
+
+Captured per-stage evidence lives in [`evidence/`](./evidence).

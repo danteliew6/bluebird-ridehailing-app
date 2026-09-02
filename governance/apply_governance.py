@@ -9,12 +9,16 @@ Pattern (per workspace constraints): masks/filters reference the UNGOVERNED
 driver_access_allowlist so they don't trip the "nested governed reference" restriction,
 and privilege is decided by current_user() against that allowlist.
 """
+import os
 import sys
-sys.path.insert(0, "/Users/dante.liew/vibe_sessions/bluebird_demo/data_gen")
-from common import get_spark, fq, CATALOG, SCHEMA
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
+from bluebird_config import CATALOG, SCHEMA, S, get_spark, fq  # noqa: E402,F401
 
 spark = get_spark()
-S = f"{CATALOG}.{SCHEMA}"
 
 stmts = [
     # ---------- privilege helper (reads ungoverned allowlist) ----------

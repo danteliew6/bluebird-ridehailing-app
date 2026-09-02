@@ -1,0 +1,152 @@
+resources:
+  jobs:
+    bluebird_bootstrap:
+      name: bluebird-bootstrap
+      description: >-
+        One-shot reproduction of the Bluebird solution: synthetic data -> DQ
+        pipeline -> UC governance -> metric views -> ML + serving -> serving gold.
+        Run once per workspace after `bundle deploy`. Lakebase synced tables and
+        the Genie space are set up separately (see BUILD.md).
+
+      # Target identifiers flow to every task as --bb-* parameters, which
+      # bootstrap/run.py promotes to BLUEBIRD_* env before bluebird_config loads.
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: schema
+          default: ${var.schema}
+        - name: warehouse_id
+          default: ${var.warehouse_id}
+        - name: serving_endpoint
+          default: ${var.serving_endpoint_name}
+        - name: experiment_dir
+          default: ${var.experiment_dir}
+
+      environments:
+        - environment_key: default
+          spec:
+            client: "4"
+        - environment_key: ml
+          spec:
+            client: "4"
+            dependencies:
+              - mlflow
+              - xgboost
+              - optuna
+              - scikit-learn
+              - pandas
+              - numpy
+
+      tasks:
+        - task_key: gen_dims
+          environment_key: default
+          spark_python_task:
+            python_file: ../bootstrap/run.py
+            parameters:
+              - gen_dims
+              - --bb-catalog={{job.parameters.catalog}}
+              - --bb-schema={{job.parameters.schema}}
+
+        - task_key: gen_bronze
+          depends_on: [{ task_key: gen_dims }]
+          environment_key: default
+          spark_python_task:
+            python_file: ../bootstrap/run.py
+            parameters:
+              - gen_bronze
+              - --bb-catalog={{job.parameters.catalog}}
+              - --bb-schema={{job.parameters.schema}}
+
+        - task_key: gen_facts
+          depends_on: [{ task_key: gen_bronze }]
+          environment_key: default
+          spark_python_task:
+            python_file: ../bootstrap/run.py
+            parameters:
+              - gen_facts
+              - --bb-catalog={{job.parameters.catalog}}
+              - --bb-schema={{job.parameters.schema}}
+
+        - task_key: add_comments
+          depends_on: [{ task_key: gen_facts }]
+          environment_key: default
+          spark_python_task:
+            python_file: ../bootstrap/run.py
+            parameters:
+              - add_comments
+              - --bb-catalog={{job.parameters.catalog}}
+              - --bb-schema={{job.parameters.schema}}
+
+        - task_key: run_dq_pipeline
+          depends_on: [{ task_key: add_comments }]
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.bluebird_dq_pipeline.id}
+            full_refresh: false
+
+        - task_key: apply_governance
+          depends_on: [{ task_key: run_dq_pipeline }]
+          environment_key: default
+          spark_python_task:
+            python_file: ../bootstrap/run.py
+            parameters:
+              - apply_governance
+              - --bb-catalog={{job.parameters.catalog}}
+              - --bb-schema={{job.parameters.schema}}
+
+        - task_key: create_metric_views
+          depends_on: [{ task_key: run_dq_pipeline }]
+          environment_key: default
+          spark_python_task:
+            python_file: ../bootstrap/run.py
+            parameters:
+              - create_metric_views
+              - --bb-catalog={{job.parameters.catalog}}
+              - --bb-schema={{job.parameters.schema}}
+
+        - task_key: build_serving_gold
+          depends_on: [{ task_key: run_dq_pipeline }]
+          environment_key: default
+          spark_python_task:
+            python_file: ../bootstrap/run.py
+            parameters:
+              - build_serving_gold
+              - --bb-catalog={{job.parameters.catalog}}
+              - --bb-schema={{job.parameters.schema}}
+
+        - task_key: train_maintenance
+          depends_on: [{ task_key: run_dq_pipeline }]
+          environment_key: ml
+          spark_python_task:
+            python_file: ../bootstrap/run.py
+            parameters:
+              - train_maintenance
+              - --bb-catalog={{job.parameters.catalog}}
+              - --bb-schema={{job.parameters.schema}}
+              - --bb-experiment-dir={{job.parameters.experiment_dir}}
+
+        - task_key: reserve_proba
+          depends_on: [{ task_key: train_maintenance }]
+          environment_key: ml
+          spark_python_task:
+            python_file: ../bootstrap/run.py
+            parameters:
+              - reserve_proba
+              - --bb-catalog={{job.parameters.catalog}}
+              - --bb-schema={{job.parameters.schema}}
+              - --bb-experiment-dir={{job.parameters.experiment_dir}}
+              - --bb-serving-endpoint={{job.parameters.serving_endpoint}}
+
+        - task_key: train_demand_forecast
+          depends_on: [{ task_key: run_dq_pipeline }]
+          environment_key: ml
+          spark_python_task:
+            python_file: ../bootstrap/run.py
+            parameters:
+              - train_demand_forecast
+              - --bb-catalog={{job.parameters.catalog}}
+              - --bb-schema={{job.parameters.schema}}
+              - --bb-experiment-dir={{job.parameters.experiment_dir}}
+
+      queue:
+        enabled: true
+      max_concurrent_runs: 1

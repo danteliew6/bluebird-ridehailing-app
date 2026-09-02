@@ -9,6 +9,15 @@ evening-peak driver shortage instead of finding out after riders have churned.
 
 > **Live app:** https://bluebird-ops-7474647641788932.aws.databricksapps.com (state: RUNNING)
 > **Reproduce the build:** [BUILD.md](./BUILD.md) · **Execution evidence:** [evidence/](./evidence)
+>
+> **Replicate the whole thing in another workspace (one command):** the solution is
+> packaged as a **Declarative Automation Bundle** ([`databricks.yml`](./databricks.yml) +
+> [`resources/`](./resources)). Pipeline, jobs, app and dashboard are DAB resources; a
+> single bootstrap job reproduces the data journey; Lakebase serving uses **synced tables**.
+> ```bash
+> ./replicate.sh --profile <target-profile> --catalog <c> --schema <s> --warehouse <id>
+> ```
+> See [BUILD.md](./BUILD.md) for the flow and the one manual step (Genie import).
 
 ---
 
@@ -31,7 +40,7 @@ trip telemetry is dirty and flows downstream unquarantined
 | 2 | **Unity Catalog** | Tag PII, mask columns, city-scoped ABAC row filter; admin allowlist bypass | [`governance/apply_governance.py`](./governance/apply_governance.py) | [02_unity_catalog_governance.md](./evidence/02_unity_catalog_governance.md) |
 | 3 | **ML / AI** | XGBoost 7-day service-risk model + demand forecast; served via Model Serving | [`ml/`](./ml) | [03_ml_and_serving.md](./evidence/03_ml_and_serving.md) |
 | 4 | **Genie Room** | Natural-language Q&A (EN + Bahasa) over governed tables | [`genie/genie_agent.json`](./genie/genie_agent.json) | [04_genie_business_queries.md](./evidence/04_genie_business_queries.md) |
-| 5 | **Lakebase** | Curated gold loaded into Lakebase Postgres; served to the app at OLTP latency; **write-back** of ops decisions to an app-owned schema | [`lakebase/`](./lakebase) | [05_lakebase_serving.md](./evidence/05_lakebase_serving.md), [06_lakebase_writeback.md](./evidence/06_lakebase_writeback.md) |
+| 5 | **Lakebase** | Curated gold synced into Lakebase Postgres via **synced tables** (Delta → Postgres); served to the app at OLTP latency; **write-back** of ops decisions to an app-owned schema | [`lakebase/`](./lakebase) | [05_lakebase_serving.md](./evidence/05_lakebase_serving.md), [06_lakebase_writeback.md](./evidence/06_lakebase_writeback.md) |
 | 6 | **Databricks App** | AppKit React ops console; Overview/Fleet/Command Center served sub-second from Lakebase, Command Center is **live** (real current hour, auto-refresh) | [`client/`](./client), [`server/`](./server) | live app + [notebook](./notebooks/bluebird_journey.ipynb), [08_analytics_on_lakebase.md](./evidence/08_analytics_on_lakebase.md) |
 
 A single executed walkthrough of all six stages (with outputs) lives at

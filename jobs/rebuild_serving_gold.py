@@ -4,13 +4,15 @@ Recomputes gold_zone_live and gold_city_hourly over the recent-30d window so the
 Command Center's served state reflects the freshly-ingested micro-batch. Runs as a
 serverless spark_python_task after the DQ pipeline task.
 """
-from pyspark.sql import SparkSession
+import os
+import sys
 
-CATALOG = "dante_classic_stable_catalog"
-SCHEMA = "bluebird_ride_hailing"
-S = f"{CATALOG}.{SCHEMA}"
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+from bluebird_config import S, get_spark  # noqa: E402
 
-spark = SparkSession.builder.getOrCreate()
+spark = get_spark()
 
 spark.sql(f"""
 CREATE OR REPLACE TABLE {S}.gold_zone_live AS

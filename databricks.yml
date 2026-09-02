@@ -1,64 +1,80 @@
 bundle:
   name: bluebird-ops
 
+include:
+  - resources/*.yml
+
+# The bundle root doubles as the app source dir, so keep heavy/generated
+# directories out of the workspace sync (the app is built on-platform).
+sync:
+  exclude:
+    - node_modules
+    - client/dist
+    - dist
+    - build
+    - test-results
+    - playwright-report
+    - .databricks
+    - "**/__pycache__"
+    - "**/*.pyc"
+
 variables:
-  sql_warehouse_id:
-    description: SQL Warehouse ID
+  catalog:
+    description: Unity Catalog catalog for all Bluebird data and assets
+    default: dante_classic_stable_catalog
+  schema:
+    description: Unity Catalog schema
+    default: bluebird_ride_hailing
+  warehouse_id:
+    description: SQL Warehouse id used by the app, dashboard, and metric views
+    default: 114b2f7bfa1273b1
   genie_space_id:
-    description: Default Genie Space ID
+    description: Genie space id (imported separately — no create API; see BUILD.md)
+    default: "01f19a33de0a1111ab1e0302d7c0b8c7"
   genie_space_name:
-    description: Genie Space display name
+    description: Genie space display name
+    default: bluebird_data
   serving_endpoint_name:
-    description: Serving endpoint name
+    description: Model serving endpoint name (created/updated by the ML stage)
+    default: bluebird-maintenance
+  experiment_dir:
+    description: MLflow experiment parent directory (workspace-agnostic)
+    default: /Shared/bluebird_ml
+  lakebase_project:
+    description: Lakebase Autoscaling project id
+    default: bluebird-ops-db
   lakebase_branch:
-    description: Lakebase branch resource name
+    description: Lakebase branch resource path
+    default: projects/bluebird-ops-db/branches/production
   lakebase_database:
-    description: Lakebase database resource name
-
-resources:
-  apps:
-    app:
-      name: "bluebird-ops"
-      description: "Bluebird ride-hailing operations"
-      source_code_path: ./
-      git_repository:
-        provider: gitHub
-        url: https://github.com/danteliew6/bluebird-ridehailing-app
-      user_api_scopes:
-        - dashboards.genie
-        - serving.serving-endpoints
-
-      # The resources which this app has access to.
-      resources:
-        - name: sql-warehouse
-          sql_warehouse:
-            id: ${var.sql_warehouse_id}
-            permission: CAN_USE
-        - name: genie-space
-          genie_space:
-            name: ${var.genie_space_name}
-            space_id: ${var.genie_space_id}
-            permission: CAN_RUN
-        - name: serving-endpoint
-          serving_endpoint:
-            name: ${var.serving_endpoint_name}
-            permission: CAN_QUERY
-        - name: postgres
-          postgres:
-            branch: ${var.lakebase_branch}
-            database: ${var.lakebase_database}
-            permission: CAN_CONNECT_AND_CREATE
+    description: Lakebase database resource path
+    default: projects/bluebird-ops-db/branches/production/databases/databricks-postgres
+  lakebase_catalog:
+    description: UC catalog registered over the Lakebase database (for synced tables)
+    default: bluebird_lakebase
 
 targets:
-  default:
+  # ---- source: the original workspace this solution was built on ----
+  source:
     default: true
     workspace:
       host: https://fevm-dante-classic-stable.cloud.databricks.com
+    # All variable defaults above already match this workspace.
 
+  # ---- replica: a NEW workspace to reproduce the solution in ----
+  # Override host + the variables below (or pass --var on the CLI), then run the
+  # replicate flow in BUILD.md. Everything is parameterized off these values.
+  replica:
+    workspace:
+      host: https://REPLACE-ME.cloud.databricks.com
     variables:
-      sql_warehouse_id: 114b2f7bfa1273b1
-      genie_space_id: 01f19a33de0a1111ab1e0302d7c0b8c7
-      genie_space_name: bluebird_data
-      serving_endpoint_name: bluebird-maintenance
+      catalog: main
+      schema: bluebird_ride_hailing
+      warehouse_id: REPLACE-ME
+      # A brand-new workspace gets fresh ids for these — leave the Genie id until
+      # after you import the space (see BUILD.md), then set it and redeploy.
+      genie_space_id: REPLACE-ME
+      lakebase_project: bluebird-ops-db
       lakebase_branch: projects/bluebird-ops-db/branches/production
       lakebase_database: projects/bluebird-ops-db/branches/production/databases/databricks-postgres
+      lakebase_catalog: bluebird_lakebase

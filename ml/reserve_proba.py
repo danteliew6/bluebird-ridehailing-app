@@ -11,12 +11,18 @@ from mlflow.tracking import MlflowClient
 from mlflow.pyfunc import PythonModel
 from pyspark.sql import functions as F, Window
 
-CATALOG, SCHEMA = "dante_classic_stable_catalog", "bluebird_ride_hailing"
+import os, sys
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+from bluebird_config import CATALOG, SCHEMA, SERVING_ENDPOINT, EXPERIMENT_DIR, get_spark  # noqa: E402
+
+spark = get_spark()
 MODEL_NAME = f"{CATALOG}.{SCHEMA}.vehicle_maintenance_clf"
 FEATURES = ["engine_temp_c", "brake_wear_pct", "battery_v", "km_since_service",
             "dtc_count", "anomaly_score", "vehicle_age"]
 mlflow.set_registry_uri("databricks-uc")
-mlflow.set_experiment("/Users/dante.liew@databricks.com/bluebird_ml/maintenance_experiment")
+mlflow.set_experiment(f"{EXPERIMENT_DIR}/maintenance_experiment")
 
 # COMMAND ----------
 # Load the trained xgboost model from v1 explicitly (v1 = the original xgboost model;
@@ -81,16 +87,30 @@ n_high = scored.filter("service_risk_7d >= 0.7").count()
 print("high-risk (>=0.7):", n_high)
 
 # COMMAND ----------
-# Update the serving endpoint to the new version
+# Point the serving endpoint at the new version — CREATE it if missing (fresh
+# workspace), otherwise UPDATE its config. Idempotent so the bootstrap job can run
+# in any workspace where the endpoint doesn't exist yet.
 from mlflow.deployments import get_deploy_client
 dc = get_deploy_client("databricks")
-dc.update_endpoint("bluebird-maintenance", config={
+endpoint_config = {
     "served_entities": [{
         "entity_name": MODEL_NAME, "entity_version": new_version,
         "workload_size": "Small", "scale_to_zero_enabled": True,
     }]
-})
-print("endpoint update requested for version", new_version)
+}
+try:
+    dc.get_endpoint(SERVING_ENDPOINT)
+    dc.update_endpoint(SERVING_ENDPOINT, config=endpoint_config)
+    print("endpoint update requested for version", new_version)
+except Exception:
+    dc.create_endpoint(name=SERVING_ENDPOINT, config=endpoint_config)
+    print("endpoint created and serving version", new_version)
 
 # COMMAND ----------
-dbutils.notebook.exit(json.dumps({"version": new_version, "high_risk_ge_0_7": int(n_high)}))
+# `dbutils` only exists in a notebook context; when this runs as a spark_python_task
+# just print the result instead of exiting the notebook.
+_result = json.dumps({"version": new_version, "high_risk_ge_0_7": int(n_high)})
+try:
+    dbutils.notebook.exit(_result)  # noqa: F821 — provided in notebook runtime
+except NameError:
+    print("RESULT", _result)

@@ -28,7 +28,7 @@ AS SELECT
   try_cast(rating           AS DOUBLE)     AS rating,
   try_cast(wait_time_min    AS DOUBLE)     AS wait_time_min,
   status
-FROM STREAM(dante_classic_stable_catalog.bluebird_ride_hailing.trip_events_bronze);
+FROM STREAM(trip_events_bronze);
 
 -- ============================ QUARANTINE (rejected rows + reason) ============================
 CREATE OR REFRESH STREAMING TABLE trips_quarantine
@@ -45,7 +45,7 @@ AS SELECT
     ELSE 'other'
   END AS reject_reason,
   current_timestamp() AS quarantined_at
-FROM STREAM(dante_classic_stable_catalog.bluebird_ride_hailing.trip_events_bronze)
+FROM STREAM(trip_events_bronze)
 WHERE driver_id IS NULL
    OR to_timestamp(request_ts) IS NULL
    OR try_cast(fare_idr AS DOUBLE) < 0

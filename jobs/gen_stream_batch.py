@@ -9,17 +9,19 @@ bronze -> silver/quarantine -> curated gold on the next pipeline run.
 IMPORTANT: only ever APPEND here — overwriting bronze would break the streaming
 source and force a full pipeline refresh.
 """
+import os
 import sys
-from pyspark.sql import SparkSession, functions as F
+from pyspark.sql import functions as F
 
-CATALOG = "dante_classic_stable_catalog"
-SCHEMA = "bluebird_ride_hailing"
-FQ = lambda t: f"{CATALOG}.{SCHEMA}.{t}"
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+from bluebird_config import fq as FQ, get_spark  # noqa: E402
 
 # batch size (arg 1, default 400) — small so each scheduled run (every 10 min) is cheap
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 400
 
-spark = SparkSession.builder.getOrCreate()
+spark = get_spark()
 
 # Sample real trips -> valid FKs; restamp to "now"; recompute a fresh trip_id.
 # sample() avoids the full global sort that orderBy(rand()) would force on fact_trip.

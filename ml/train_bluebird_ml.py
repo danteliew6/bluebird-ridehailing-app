@@ -5,7 +5,7 @@
 # MAGIC registered to Unity Catalog, plus a demand forecast written to a gold table.
 
 # COMMAND ----------
-import json, mlflow, optuna
+import os, sys, json, mlflow, optuna
 import numpy as np
 from pyspark.sql import functions as F, Window
 from mlflow.tracking import MlflowClient
@@ -13,10 +13,23 @@ from xgboost import XGBClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score, average_precision_score
 
-CATALOG, SCHEMA = "dante_classic_stable_catalog", "bluebird_ride_hailing"
-MODEL_NAME = f"{CATALOG}.{SCHEMA}.vehicle_maintenance_clf"
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+from bluebird_config import CATALOG, SCHEMA, S, EXPERIMENT_DIR, get_spark  # noqa: E402
+
+spark = get_spark()
+
+
+def _emit(payload):
+    """Return the run summary — via dbutils in a notebook, else just print it."""
+    try:
+        dbutils.notebook.exit(payload)  # noqa: F821 — provided in notebook runtime
+    except NameError:
+        print("RESULT", payload)
+MODEL_NAME = f"{S}.vehicle_maintenance_clf"
 mlflow.set_registry_uri("databricks-uc")
-mlflow.set_experiment("/Users/dante.liew@databricks.com/bluebird_ml/maintenance_experiment")
+mlflow.set_experiment(f"{EXPERIMENT_DIR}/maintenance_experiment")
 
 # COMMAND ----------
 # MAGIC %md
@@ -157,7 +170,7 @@ fc_rows = spark.table(f"{CATALOG}.{SCHEMA}.gold_demand_forecast").count()
 spark.sql(f"DROP TABLE IF EXISTS {CATALOG}.{SCHEMA}._demand_hourly")
 
 # COMMAND ----------
-dbutils.notebook.exit(json.dumps({
+_emit(json.dumps({
     "model_version": info.registered_model_version,
     "val_auc": round(auc, 4),
     "val_avg_precision": round(ap, 4),

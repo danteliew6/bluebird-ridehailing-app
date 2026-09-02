@@ -7,7 +7,7 @@
 # MAGIC (same schema the app already reads: city, forecast_ts, trips_forecast, trips_upper, trips_lower).
 
 # COMMAND ----------
-import json, mlflow, optuna
+import os, sys, json, mlflow, optuna
 import numpy as np
 import pandas as pd
 from datetime import timedelta
@@ -16,10 +16,15 @@ from mlflow.tracking import MlflowClient
 from xgboost import XGBRegressor
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 
-CATALOG, SCHEMA = "dante_classic_stable_catalog", "bluebird_ride_hailing"
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+from bluebird_config import CATALOG, SCHEMA, S, EXPERIMENT_DIR, get_spark  # noqa: E402
+
+spark = get_spark()
 MODEL_NAME = f"{CATALOG}.{SCHEMA}.bluebird_demand_forecast"
 mlflow.set_registry_uri("databricks-uc")
-mlflow.set_experiment("/Users/dante.liew@databricks.com/bluebird_ml/demand_forecast_experiment")
+mlflow.set_experiment(f"{EXPERIMENT_DIR}/demand_forecast_experiment")
 
 # COMMAND ----------
 # MAGIC %md
@@ -176,7 +181,7 @@ spark.sql(f"COMMENT ON TABLE {CATALOG}.{SCHEMA}.gold_demand_forecast IS "
           f"'7-day demand forecast from the bluebird_demand_forecast XGBoost model (calendar + lag/rolling features).'")
 
 # COMMAND ----------
-dbutils.notebook.exit(json.dumps({
+_emit(json.dumps({
     "model_version": info.registered_model_version,
     "val_rmse": round(rmse, 2),
     "val_mae": round(mae, 2),
