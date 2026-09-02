@@ -65,20 +65,13 @@ bundle run bluebird_bootstrap
 # 4. Lakebase synced tables (gold now exists) + grant the app SP SELECT
 ./lakebase/setup_synced_tables.sh --profile "$PROFILE" --phase sync
 
-# 5. the one thing a DAB can't create
+# 5. done — the Genie space + app binding were created by 'bundle deploy'
 cat <<EOF
 
 ============================================================================
-Replication deployed. One manual step remains (Genie has no create API):
+Replication complete. The pipeline, jobs, app, dashboard, Genie space (bound to
+the app), and Lakebase synced tables are all deployed.
 
-  1. Import the Genie space from genie/genie_agent.json in the target workspace
-     (Genie UI -> New -> import, or reuse an existing space).
-  2. Put its space id into the 'replica' target's genie_space_id variable in
-     databricks.yml (or pass --var genie_space_id=<id>), then re-run:
-         databricks bundle deploy -t $TARGET --profile $PROFILE
-     so the app binds the Genie space.
-
-The app URL is printed by 'bundle run'/'apps list'. If the app's Genie chat or
-dashboard tab 404s, it's the space id above not yet wired.
+The app URL is printed by 'bundle run' / 'databricks apps list --profile $PROFILE'.
 ============================================================================
 EOF

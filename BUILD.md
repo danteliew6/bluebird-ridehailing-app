@@ -16,12 +16,12 @@ target is a fill-in-the-blank template for a new workspace.
 | Job `bluebird-realtime-ingest` | `resources/job_realtime.yml` | near-real-time gen → DQ → gold → **refresh synced tables** (schedule PAUSED) |
 | App `bluebird-ops` | `resources/app.yml` | AppKit control center, deployed from bundle-synced workspace files |
 | Dashboard `Bluebird Ops` | `resources/dashboard.yml` | AI/BI Lakeview dashboard |
+| Genie space `bluebird_data` | `resources/genie.yml` | NL Q&A space; `serialized_space` inlined from `genie/genie_agent.json` at deploy. The app binds to it via `${resources.genie_spaces.bluebird_genie.id}` — no manual import. |
 
 Not DAB-native (provisioned by the replicate flow):
 - **Lakebase synced tables** — created via `lakebase/setup_synced_tables.sh`
   (the DAB `synced_database_tables` resource is deprecated and fails on current
   Lakebase, so the supported `databricks postgres create-synced-table` CLI is used).
-- **Genie space** — no create API; imported from `genie/genie_agent.json`.
 
 `bootstrap/run.py` is the single entrypoint for every serverless job task: it
 promotes `--bb-*` task parameters into `BLUEBIRD_*` env vars before importing
@@ -41,13 +41,14 @@ promotes `--bb-*` task parameters into `BLUEBIRD_*` env vars before importing
 ```
 
 That runs, in dependency order: retarget static assets (no-op on source) → create
-the Lakebase project → `bundle deploy` → `bundle run bluebird_bootstrap` → Lakebase
-synced-table setup + app-SP grant. Then import the Genie space (below).
+the Lakebase project → `bundle deploy` (pipeline, jobs, app, dashboard, **and the
+Genie space**) → `bundle run bluebird_bootstrap` → Lakebase synced-table setup +
+app-SP grant. No manual Genie step.
 
 ## Replicate into a NEW workspace (`replica`)
 
 1. Edit `databricks.yml` → `targets.replica`: set `workspace.host` (and, if you
-   prefer, the variable defaults). Leave `genie_space_id` until after the Genie import.
+   prefer, the variable defaults).
 2. Run, passing the target catalog/schema/warehouse as flags — `replicate.sh`
    forwards them to the bundle as `--var` and exports the matching `BLUEBIRD_*`
    env for the shell steps (render + Lakebase), so everything lines up:
@@ -55,15 +56,13 @@ synced-table setup + app-SP grant. Then import the Genie space (below).
    ./replicate.sh --profile <your-profile> \
        --catalog <catalog> --schema <schema> --warehouse <warehouse-id>
    ```
-   (`--target replica` is the default.)
-3. **Genie**: import `genie/genie_agent.json` (retarget its `data_sources` to your
-   `catalog.schema`), set `var.genie_space_id` in `databricks.yml` (or pass
-   `--var genie_space_id=<id>`), and redeploy
-   (`databricks bundle deploy -t replica --profile <profile>`) so the app binds it.
+   (`--target replica` is the default.) The Genie space is created by the bundle
+   and the app binds to it automatically — nothing manual.
 
 > The bundle is fully parameterized; step 0 of `replicate.sh` also retargets the
-> app's catalog-qualified SQL (`config/queries/*.sql`) and the dashboard JSON when
-> the replica catalog/schema differs from the original.
+> catalog-qualified content that DABs doesn't substitute for you: the app SQL
+> (`config/queries/*.sql`), the dashboard JSON, and the Genie space's `data_sources`
+> (`genie/genie_agent.json`) — when the replica catalog/schema differs from the original.
 
 ## Individual bundle commands
 

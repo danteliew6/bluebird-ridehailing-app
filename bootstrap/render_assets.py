@@ -28,6 +28,9 @@ TARGET = f"{CATALOG}.{SCHEMA}"
 TARGETS = [
     os.path.join(_REPO_ROOT, "config", "queries", "*.sql"),
     os.path.join(_REPO_ROOT, "dashboard", "*.json"),
+    # Genie space is a DAB resource (resources/genie.yml); its data_sources embed
+    # catalog.schema and are inlined at deploy, so retarget them here too.
+    os.path.join(_REPO_ROOT, "genie", "*.json"),
 ]
 
 

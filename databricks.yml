@@ -28,9 +28,6 @@ variables:
   warehouse_id:
     description: SQL Warehouse id used by the app, dashboard, and metric views
     default: 114b2f7bfa1273b1
-  genie_space_id:
-    description: Genie space id (imported separately — no create API; see BUILD.md)
-    default: "01f19a33de0a1111ab1e0302d7c0b8c7"
   genie_space_name:
     description: Genie space display name
     default: bluebird_data
@@ -71,9 +68,8 @@ targets:
       catalog: main
       schema: bluebird_ride_hailing
       warehouse_id: REPLACE-ME
-      # A brand-new workspace gets fresh ids for these — leave the Genie id until
-      # after you import the space (see BUILD.md), then set it and redeploy.
-      genie_space_id: REPLACE-ME
+      # The Genie space is created by the bundle (resources/genie.yml) and the app
+      # binds to it automatically — no manual import or id wiring needed.
       lakebase_project: bluebird-ops-db
       lakebase_branch: projects/bluebird-ops-db/branches/production
       lakebase_database: projects/bluebird-ops-db/branches/production/databases/databricks-postgres

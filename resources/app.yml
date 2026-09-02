@@ -19,7 +19,9 @@ resources:
         - name: genie-space
           genie_space:
             name: ${var.genie_space_name}
-            space_id: ${var.genie_space_id}
+            # Bind to the DAB-managed Genie space (created by resources/genie.yml),
+            # so replication is fully self-contained — no manual import/id wiring.
+            space_id: ${resources.genie_spaces.bluebird_genie.id}
             permission: CAN_RUN
         - name: serving-endpoint
           serving_endpoint:

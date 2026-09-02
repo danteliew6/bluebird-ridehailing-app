@@ -13,11 +13,12 @@ evening-peak driver shortage instead of finding out after riders have churned.
 > **Replicate the whole thing in another workspace (one command):** the solution is
 > packaged as a **Declarative Automation Bundle** ([`databricks.yml`](./databricks.yml) +
 > [`resources/`](./resources)). Pipeline, jobs, app and dashboard are DAB resources; a
-> single bootstrap job reproduces the data journey; Lakebase serving uses **synced tables**.
+> single bootstrap job reproduces the data journey; Lakebase serving uses **synced tables**;
+> the **Genie space** is a DAB resource the app binds to automatically.
 > ```bash
 > ./replicate.sh --profile <target-profile> --catalog <c> --schema <s> --warehouse <id>
 > ```
-> See [BUILD.md](./BUILD.md) for the flow and the one manual step (Genie import).
+> See [BUILD.md](./BUILD.md) for the full flow.
 
 ---
 
